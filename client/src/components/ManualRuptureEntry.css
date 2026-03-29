@@ -1,0 +1,76 @@
+.rupture-scanner-container {
+  @apply space-y-10 max-w-3xl mx-auto animate-in fade-in zoom-in-95 duration-700;
+}
+
+.scanner-main-card {
+  @apply border-none overflow-hidden bg-white/60 backdrop-blur-xl rounded-[4rem];
+  box-shadow: 0 40px 100px -20px rgba(225, 29, 72, 0.1);
+}
+
+.scanner-header {
+  @apply p-12 bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400 text-white relative overflow-hidden;
+  clip-path: polygon(0 0, 100% 0, 100% 85%, 0 100%);
+}
+
+.scanner-header-icon-stack {
+  @apply flex items-center justify-between gap-6 relative z-10;
+}
+
+.scanner-title-area h2 {
+  @apply text-4xl font-black tracking-tighter leading-none mb-3;
+}
+
+.scanner-title-area p {
+  @apply text-rose-100 font-bold text-lg opacity-80;
+}
+
+.scanner-badge-alert {
+  @apply flex items-center gap-2 px-6 py-2 rounded-full bg-white/20 backdrop-blur-md border border-white/30 text-[10px] font-black uppercase tracking-[0.2em] animate-pulse;
+}
+
+.scanner-content-body {
+  @apply p-16 space-y-12;
+}
+
+/* Input Field High-End */
+.scanner-input-brick {
+  @apply relative;
+}
+
+.scanner-input-glow {
+  @apply absolute -inset-2 bg-gradient-to-r from-rose-500 to-amber-400 rounded-3xl blur-xl opacity-0 transition duration-500;
+}
+
+.scanner-input-brick:focus-within .scanner-input-glow {
+  @apply opacity-20;
+}
+
+.premium-scanner-input {
+  @apply pl-16 h-20 text-4xl font-mono font-black tracking-[0.3em] border-none bg-slate-100/80 rounded-3xl focus-visible:ring-rose-500/20 shadow-inner placeholder:text-slate-300 placeholder:text-lg placeholder:font-sans placeholder:tracking-normal;
+}
+
+.scanner-input-icon {
+  @apply absolute left-6 top-1/2 -translate-y-1/2 w-8 h-8 text-rose-300 transition-colors;
+}
+
+.scanner-input-brick:focus-within .scanner-input-icon {
+  @apply text-rose-500;
+}
+
+/* Last Scanned Brick */
+.last-scanned-success-brick {
+  @apply relative p-8 rounded-[2.5rem] bg-emerald-500 text-white overflow-hidden shadow-2xl animate-in slide-in-from-bottom-4;
+  clip-path: polygon(5% 0, 100% 0, 100% 100%, 0 100%, 0 15%);
+}
+
+.last-scanned-ornament {
+  @apply absolute -right-8 -bottom-8 w-32 h-32 text-white/10 rotate-12;
+}
+
+.scanner-button-premium {
+  @apply h-16 rounded-[2rem] text-lg font-black uppercase tracking-widest transition-all duration-500 shadow-xl;
+}
+
+.camera-scanner-frame {
+  @apply overflow-hidden rounded-[2.5rem] border-8 border-white shadow-2xl relative shadow-rose-200/50;
+}

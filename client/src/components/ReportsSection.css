@@ -1,0 +1,87 @@
+.reports-dashboard {
+  @apply space-y-12 animate-in fade-in duration-700;
+}
+
+.reports-branding-strip {
+  @apply flex flex-col md:flex-row items-center justify-between gap-8 mb-12 p-12 bg-white/40 backdrop-blur-xl rounded-[3rem] border border-white/20 shadow-sm relative overflow-hidden;
+}
+
+.reports-branding-logo {
+  @apply h-20 w-auto opacity-10 grayscale hover:opacity-100 transition-all cursor-pointer;
+}
+
+.reports-title-stack h2 {
+  @apply text-4xl font-black text-slate-800 tracking-tighter leading-none;
+}
+
+.reports-grid {
+  @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8;
+}
+
+.report-status-card {
+  @apply relative overflow-hidden bg-white/60 backdrop-blur-md p-10 rounded-[2.5rem] border-none shadow-xl transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2;
+}
+
+.report-status-card-inner {
+  @apply flex flex-col gap-6 relative z-10;
+}
+
+.report-card-icon-hex {
+  @apply w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-lg transition-all;
+}
+
+.report-status-card:hover .report-card-icon-hex {
+  @apply rotate-6;
+}
+
+.report-card-metric {
+  @apply text-5xl font-black text-slate-900 tracking-tighter;
+}
+
+.report-card-label {
+  @apply text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mt-2;
+}
+
+.status-pulse-urgent {
+  @apply absolute top-6 right-6 w-3 h-3 bg-rose-500 rounded-full animate-ping;
+}
+
+.reports-priority-area {
+  @apply grid grid-cols-1 lg:grid-cols-2 gap-12 mt-12;
+}
+
+.priority-section-wrapper {
+  @apply space-y-6;
+}
+
+.priority-header-brick {
+  @apply flex items-center gap-4 px-10 py-6 bg-slate-900 text-white rounded-[2.5rem] shadow-2xl;
+}
+
+.priority-header-brick h3 {
+  @apply text-xl font-black tracking-tight uppercase;
+}
+
+.priority-list-card {
+  @apply bg-white/80 backdrop-blur-xl rounded-[3rem] border-none shadow-2xl overflow-hidden;
+}
+
+.priority-list-item {
+  @apply flex items-center justify-between p-8 hover:bg-slate-50 transition-colors;
+}
+
+.priority-item-name {
+  @apply block font-black text-slate-800 text-lg leading-none mb-1;
+}
+
+.priority-item-sub {
+  @apply block text-[10px] font-black uppercase tracking-widest text-slate-400;
+}
+
+.priority-item-tag-rupture {
+  @apply px-4 py-1 rounded-full bg-rose-500/10 text-rose-600 text-[10px] font-black uppercase tracking-widest border border-rose-500/20;
+}
+
+.priority-item-tag-selling {
+  @apply px-4 py-1 rounded-full bg-blue-500/10 text-blue-600 text-[10px] font-black uppercase tracking-widest border border-blue-500/20;
+}

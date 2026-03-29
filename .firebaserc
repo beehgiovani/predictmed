@@ -1,0 +1,21 @@
+{
+  "projects": {
+    "default": "predictmed-94729"
+  },
+  "targets": {
+    "predictmed-94729": {
+      "hosting": {
+        "predmed": [
+          "predmed"
+        ],
+        "predictmed": [
+          "predictmed"
+        ],
+        "predicmed": [
+          "predicmed"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

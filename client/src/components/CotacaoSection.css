@@ -1,0 +1,120 @@
+.cotacao-container {
+  @apply space-y-12 animate-in fade-in duration-700;
+}
+
+.revision-header {
+  @apply flex flex-row items-center justify-between gap-6 mb-8 p-10 bg-white/40 backdrop-blur-md rounded-[2.5rem] border border-white/20 shadow-sm relative overflow-hidden;
+}
+
+.revision-title-area h2 {
+  @apply text-4xl font-black text-slate-900 tracking-tighter leading-none mb-3;
+}
+
+.revision-title-area p {
+  @apply text-slate-500 font-bold text-lg;
+}
+
+.revision-card {
+  @apply bg-white/80 backdrop-blur-xl rounded-[3rem] border-none shadow-2xl overflow-hidden;
+  box-shadow: var(--shadow-premium);
+}
+
+.predictive-table {
+  @apply w-full border-collapse;
+}
+
+.predictive-thead {
+  @apply bg-slate-900 text-white;
+}
+
+.predictive-th {
+  @apply px-8 py-6 text-left text-[10px] font-black uppercase tracking-[0.2em];
+}
+
+.predictive-tr {
+  @apply hover:bg-blue-50/30 transition-colors border-b border-slate-50;
+}
+
+.predictive-td {
+  @apply px-8 py-6;
+}
+
+.ai-insight-cell {
+  @apply bg-blue-50/20 text-center;
+  clip-path: polygon(5% 0, 100% 0, 100% 100%, 0 100%, 0 10%);
+}
+
+.ai-insight-value {
+  @apply text-2xl font-black text-blue-700 block;
+}
+
+.ai-insight-label {
+  @apply text-[9px] font-black uppercase tracking-wider text-blue-400 mt-1;
+}
+
+.qty-confirm-input {
+  @apply w-32 h-14 text-lg font-black text-center bg-white border-2 border-slate-100 rounded-2xl focus:border-green-500 focus:ring-green-500/20 transition-all shadow-inner;
+}
+
+.upload-panel-grid {
+  @apply grid grid-cols-1 md:grid-cols-2 gap-12 mt-12;
+}
+
+.upload-facet-card {
+  @apply relative p-12 rounded-[3rem] border-none shadow-2xl transition-all duration-500 overflow-hidden;
+}
+
+.facet-left {
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 15% 100%, 0 85%);
+}
+
+.facet-right {
+  clip-path: polygon(0 0, 85% 0, 100% 15%, 100% 100%, 0 100%);
+}
+
+.upload-icon-box {
+  @apply w-20 h-20 bg-white rounded-3xl flex items-center justify-center mb-8 shadow-xl transition-all duration-500;
+}
+
+.upload-facet-card:hover .upload-icon-box {
+  @apply scale-110 rotate-3;
+}
+
+.upload-text-stack h3 {
+  @apply text-3xl font-black text-slate-900 mb-2;
+}
+
+.upload-text-stack p {
+  @apply text-slate-500 font-medium leading-relaxed;
+}
+
+.upload-button-premium {
+  @apply mt-10 h-16 rounded-2xl px-12 text-lg font-black tracking-widest uppercase transition-all duration-500;
+}
+
+.form-input-premium {
+  @apply h-14 border-2 border-slate-100 bg-white rounded-2xl focus-visible:ring-blue-600/30 font-bold placeholder:text-slate-400/50 shadow-sm transition-all focus:border-blue-600;
+}
+
+.drop-zone-premium {
+  @apply relative p-14 border-2 border-dashed border-slate-200 rounded-[3rem] hover:border-blue-500 transition-all bg-slate-50/50 flex flex-col items-center justify-center text-center cursor-pointer mt-10;
+}
+
+.ui-form-left-panel {
+  @apply w-full md:w-[450px] bg-slate-900 p-12 md:p-16 flex flex-col justify-between text-white relative overflow-hidden shrink-0;
+  background-image: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+}
+
+.ui-form-left-panel::after {
+  content: "";
+  @apply absolute -bottom-20 -left-20 w-64 h-64 bg-blue-600/20 rounded-full blur-3xl pointer-events-none;
+}
+
+.ui-form-right-panel {
+  @apply flex-1 p-10 md:p-16 bg-white space-y-12;
+}
+
+.upload-form-card {
+  @apply overflow-hidden border-none shadow-2xl rounded-[3.5rem] bg-white;
+  box-shadow: var(--shadow-premium);
+}
