@@ -1,15 +1,14 @@
-import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import type { User } from "../../drizzle/schema";
-import { sdk } from "./sdk";
+import type { User } from "../../drizzle/schema.ts";
+import { sdk } from "./sdk.ts";
 
 export type TrpcContext = {
-  req: CreateExpressContextOptions["req"];
-  res: CreateExpressContextOptions["res"];
+  req: any;
+  res: any;
   user: User | null;
 };
 
 export async function createContext(
-  opts: CreateExpressContextOptions
+  opts: { req: any; res: any }
 ): Promise<TrpcContext> {
   let user: User | null = null;
 

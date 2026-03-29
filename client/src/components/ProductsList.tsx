@@ -20,13 +20,13 @@ export default function ProductsList() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl border shadow-sm">
         <div>
-           <h2 className="text-2xl font-bold text-slate-900">Catálogo de Produtos</h2>
-           <p className="text-sm text-slate-500">Visualize seu estoque e identifique rupturas rapidamente.</p>
+           <h2 className="text-2xl font-bold text-slate-900">Meus Produtos</h2>
+           <p className="text-sm text-slate-500">Dá uma olhada no que tem na prateleira e o que tá fazendo falta.</p>
         </div>
         <div className="relative w-full md:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <Input
-            placeholder="Buscar por nome ou código..."
+            placeholder="Procurar por nome ou código..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10 h-11 bg-slate-50 border-slate-200 focus:bg-white transition-all shadow-inner"
@@ -41,13 +41,13 @@ export default function ProductsList() {
       ) : products?.length === 0 ? (
         <Card className="p-20 text-center flex flex-col items-center gap-4 bg-slate-50 border-dashed border-2">
            <PackageX className="w-12 h-12 text-slate-300" />
-           <p className="text-slate-500 font-medium">Nenhum produto encontrado na base de dados.</p>
+           <p className="text-slate-500 font-medium">Não achei nada por aqui com esse nome.</p>
         </Card>
       ) : (
         <Card className="overflow-hidden border-slate-200 shadow-xl rounded-xl">
           <div className="overflow-x-auto">
             
-            {/* --- MOBILE: Data-Cards (Pocket View) --- */}
+            {/* --- CELULAR: Visão em Cards --- */}
             <div className="md:hidden grid grid-cols-1 gap-4 p-3 bg-slate-50/50">
               {products?.map((product) => (
                 <Card 
@@ -55,7 +55,7 @@ export default function ProductsList() {
                   className={`flex flex-col gap-3 p-4 shadow-sm border-slate-200/60 ${product.isMissing ? 'border-l-4 border-l-red-500 bg-red-50/20 shadow-red-100' : 'hover:shadow-md transition-all'}`}
                 >
                   <div className="flex items-start gap-3 relative">
-                    {/* Thumbnail */}
+                    {/* Foto */}
                     {product.imageUrl ? (
                       <img src={product.imageUrl} alt="" className="w-14 h-14 object-contain rounded-xl border bg-white shadow-sm shrink-0" />
                     ) : (
@@ -64,23 +64,23 @@ export default function ProductsList() {
                       </div>
                     )}
                     
-                    {/* Main Info */}
+                    {/* Info */}
                     <div className="flex-1 min-w-0 pr-12">
                       <h4 className="font-bold text-slate-800 text-sm leading-snug line-clamp-2">{product.name}</h4>
                       <div className="flex flex-wrap items-center gap-1.5 mt-2">
                         <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-mono text-slate-500 bg-white shadow-sm">{product.code}</Badge>
-                        {product.ean && <span className="text-[9px] text-slate-400 font-mono">EAN: {product.ean}</span>}
+                        {product.ean && <span className="text-[9px] text-slate-400 font-mono">Barras: {product.ean}</span>}
                       </div>
 
                       {product.isMissing && (
                         <div className="flex items-center gap-1.5 mt-2">
                           <AlertTriangle className="w-3.5 h-3.5 text-red-600 animate-pulse" />
-                          <span className="text-[9px] font-black text-red-600 uppercase tracking-widest">Falta Severa</span>
+                          <span className="text-[9px] font-black text-red-600 uppercase tracking-widest">🚨 Tá em Falta!</span>
                         </div>
                       )}
                     </div>
 
-                    {/* Quick Price (Top Right) */}
+                    {/* Preço (Canto Superior Direito) */}
                     <div className="absolute top-0 right-0 text-right">
                       <span className="text-xs font-black text-slate-700 bg-slate-100 px-2 py-1 rounded-bl-xl rounded-tr-lg border border-slate-200">
                         {parseFloat(product.price || '0').toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -88,27 +88,27 @@ export default function ProductsList() {
                     </div>
                   </div>
 
-                  {/* Actions Bar */}
+                  {/* Botões de Ação */}
                   <div className="flex justify-end items-center mt-1 pt-3 border-t border-slate-100">
                     <Button size="sm" variant={product.isMissing ? "destructive" : "outline"} className="h-9 w-full sm:w-auto text-xs font-black tracking-wide shadow-sm">
                       <ShoppingCart className="w-4 h-4 mr-2" />
-                      {product.isMissing ? "ABASTECER" : "Cotar Estoque"}
+                      {product.isMissing ? "PEDIR AGORA" : "Ver Estoque"}
                     </Button>
                   </div>
                 </Card>
               ))}
             </div>
 
-            {/* --- DESKTOP: Data Table --- */}
+            {/* --- DESKTOP: Tabela de Dados --- */}
             <div className="hidden md:block w-full overflow-x-auto">
               <Table className="w-full">
                 <TableHeader className="bg-slate-900">
                   <TableRow className="hover:bg-slate-900 border-none">
                     <TableHead className="w-16"></TableHead>
-                    <TableHead className="text-slate-300 font-bold uppercase text-[10px] tracking-wider">Produto</TableHead>
-                    <TableHead className="text-slate-300 font-bold uppercase text-[10px] tracking-wider">Código / EAN</TableHead>
-                    <TableHead className="text-slate-300 font-bold uppercase text-[10px] tracking-wider text-right">Preço ERP</TableHead>
-                    <TableHead className="text-slate-300 font-bold uppercase text-[10px] tracking-wider text-right">Ação</TableHead>
+                    <TableHead className="text-slate-300 font-bold uppercase text-[10px] tracking-wider">Nome do Produto</TableHead>
+                    <TableHead className="text-slate-300 font-bold uppercase text-[10px] tracking-wider">Cód / Barras</TableHead>
+                    <TableHead className="text-slate-300 font-bold uppercase text-[10px] tracking-wider text-right">Preço no Sistema</TableHead>
+                    <TableHead className="text-slate-300 font-bold uppercase text-[10px] tracking-wider text-right">O que fazer?</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -129,7 +129,7 @@ export default function ProductsList() {
                             {product.isMissing && (
                               <div className="flex items-center gap-1.5 mt-1">
                                   <AlertTriangle className="w-3 h-3 text-red-600 animate-bounce" />
-                                  <span className="text-[10px] font-black text-red-600 uppercase tracking-tighter">🚨 EM RUPTURA (FALTA)</span>
+                                  <span className="text-[10px] font-black text-red-600 uppercase tracking-tighter">🚨 TÁ EM FALTA!</span>
                               </div>
                             )}
                         </div>
@@ -146,7 +146,7 @@ export default function ProductsList() {
                       <TableCell className="text-right">
                         <Button size="sm" variant={product.isMissing ? "destructive" : "outline"} className="h-8 text-xs font-bold gap-2">
                             <ShoppingCart className="w-3 h-3" />
-                            {product.isMissing ? "Urgente" : "Pedir"}
+                            {product.isMissing ? "Pedir Urgente" : "Pedir"}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -162,11 +162,11 @@ export default function ProductsList() {
       <div className="flex gap-6 p-4 bg-slate-50 border rounded-lg text-xs text-slate-600">
          <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-red-50 border-l-2 border-red-500 rounded"></div>
-            <span>Item com falta detectada no recebimento</span>
+            <span>Esse item não chegou como deveria (falta detectada).</span>
          </div>
          <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-slate-900 rounded"></div>
-            <span>Catálogo padrão PredictMed</span>
+            <span>Produtos cadastrados no PredictMed.</span>
          </div>
       </div>
     </div>

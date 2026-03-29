@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { publicProcedure, router } from "./_core/trpc";
-import { getDb, getClient } from "./db";
-import { products, salesHistory } from "../drizzle/schema";
+import { publicProcedure, router } from "./_core/trpc.ts";
+import { getDb, getClient } from "./db.ts";
+import { products, salesHistory } from "../drizzle/schema.ts";
 import { sql } from "drizzle-orm";
-import { supabase } from "./lib/supabase";
+import { supabase } from "./lib/supabase.ts";
+import { parseCotacContent, parseSalesContent } from "./lib/parsers.ts";
 
-// Helper para busca automática de imagens via API externa (EAN)
+// Ajuda a buscar as fotos dos produtos automaticamente na internet usando o EAN (código de barras)
 async function fetchProductImage(ean: string | null): Promise<string | null> {
   if (!ean || !ean.length || ean.length < 8) return null;
   try {
@@ -14,16 +15,18 @@ async function fetchProductImage(ean: string | null): Promise<string | null> {
     const data = await response.json();
     return data.image || data.thumbnail || null;
   } catch (e) {
-    console.warn(`[ImageSync] Falha ao buscar imagem para EAN ${ean}`);
+    if (process.env.NODE_ENV !== 'production') {
+       console.warn(`[Fotos] Não consegui achar a imagem pro EAN ${ean}`);
+    }
     return null;
   }
 }
 
 export const dataRouter = router({
-  // ✅ Endpoint Temporário de Migração
+  // Isso aqui é só pra ajustar o banco de dados se eu mudar alguma tabela
   runMigrations: publicProcedure.mutation(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Banco não conectado");
+    if (!db) throw new Error("Ih, o banco não conectou!");
 
     const steps = [
       `ALTER TABLE products ADD COLUMN IF NOT EXISTS "ean" VARCHAR(64)`,
@@ -54,7 +57,7 @@ export const dataRouter = router({
       `ALTER TABLE quote_sessions DISABLE ROW LEVEL SECURITY`,
       `ALTER TABLE quote_items DISABLE ROW LEVEL SECURITY`,
       `ALTER TABLE sales_history DISABLE ROW LEVEL SECURITY`,
-      // ✅ NOVAS TABELAS PARA IA E RUPTURA MANUAL
+      // TABELAS PRA IA E PRA REGISTRAR FALTA DE PRODUTO NO BALCÃO
       `CREATE TABLE IF NOT EXISTS "manual_ruptures" (
         "id" SERIAL PRIMARY KEY,
         "productcode" VARCHAR(64) NOT NULL,
@@ -81,15 +84,16 @@ export const dataRouter = router({
         await db.execute(sql.raw(step));
         results.push(`✅ OK: ${step.substring(0, 50)}`);
       } catch (e: any) {
-        results.push(`⚠️ SKIP: ${e.message.substring(0, 50)}`);
+        results.push(`⚠️ Pulei: ${e.message.substring(0, 50)}`);
       }
     }
     return { success: true, results };
   }),
 
+  // Verifica se as colunas da tabela de produtos estão certas
   checkColumns: publicProcedure.query(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database connection not available");
+    if (!db) throw new Error("Sem conexão com o banco");
     const result = await db.execute(sql.raw(`
       SELECT column_name, data_type 
       FROM information_schema.columns 
@@ -98,44 +102,32 @@ export const dataRouter = router({
     return Array.from(result);
   }),
 
+  // Processa o arquivo COTAC pra atualizar o cadastro de produtos
   uploadCotac: publicProcedure
     .input(z.object({ fileContent: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database connection not available");
+      if (!db) throw new Error("Banco offline!");
 
-      const lines = input.fileContent.split('\n').map(l => l.trim()).filter(Boolean);
+      const rows = parseCotacContent(input.fileContent);
       let imported = 0;
       const rowsToInsert: any[] = [];
-      const seenCodes = new Set<string>();
 
-      for (const line of lines) {
-        const fields = line.split(';');
-        if (fields.length >= 5) {
-          const ean = fields[1]?.trim();
-          const code = fields[3]?.trim();
-          const name = fields[4]?.trim();
-
-          if (!code || !name || seenCodes.has(code)) continue;
-          if (name.includes('**')) continue;
-          
-          seenCodes.add(code);
-          const isperfumery = name.toLowerCase().includes('perfume') || name.toLowerCase().includes('shampoo');
-
-          rowsToInsert.push({
-            code,
-            ean: ean || null,
-            name,
-            price: "0.00", 
-            manufacturer: "",
-            iscontrolled: false,
-            isperfumery
-          });
-          imported++;
-        }
+      for (const row of rows) {
+        rowsToInsert.push({
+          code: row.code,
+          ean: row.ean,
+          name: row.name,
+          price: "0.00", 
+          manufacturer: "",
+          iscontrolled: false,
+          isperfumery: row.isperfumery
+        });
+        imported++;
       }
 
       if (rowsToInsert.length > 0) {
+        // Busca as primeiras fotos pra não demorar muito o upload
         for (const row of rowsToInsert.slice(0, 50)) {
            if (row.ean) {
               row.imageUrl = await fetchProductImage(row.ean);
@@ -152,49 +144,38 @@ export const dataRouter = router({
       return { success: true, message: `${imported} produtos processados.`, productsProcessed: imported };
     }),
 
+  // Sobe o arquivo de vendas pra IA aprender o giro da farmácia
   uploadSales: publicProcedure
     .input(z.object({ fileContent: z.string(), startDate: z.string(), endDate: z.string() }))
     .mutation(async ({ input }) => {
-      const lines = input.fileContent.split('\n').map(l => l.trim()).filter(Boolean);
+      const rows = parseSalesContent(input.fileContent);
       let imported = 0;
       const rowsToInsert: any[] = [];
       const productsToUpsert: any[] = [];
       const start = new Date(input.startDate);
       const end = new Date(input.endDate);
 
-      for (const line of lines) {
-        const fields = line.split(';');
-        if (fields.length >= 7 && fields[0] === '2') {
-          const ean = fields[1]?.trim();
-          const quantity = parseInt(fields[2]?.trim() || '0');
-          const code = fields[3]?.trim();
-          const name = fields[4]?.trim();
-          const lab = fields[5]?.trim();
-          const price = parseFloat(fields[6]?.trim() || '0');
+      for (const row of rows) {
+        productsToUpsert.push({
+          code: row.code,
+          ean: row.ean,
+          name: row.name,
+          manufacturer: row.manufacturer,
+          price: row.price,
+        });
 
-          if (!code || isNaN(quantity) || quantity === 0) continue;
-          if (name?.startsWith('**')) continue;
-
-          productsToUpsert.push({
-            code: code,
-            ean: ean || null,
-            name: name,
-            manufacturer: lab || null,
-            price: price || null,
-          });
-
-          rowsToInsert.push({
-            productcode: code,
-            quantity,
-            startdate: start.toISOString(),
-            enddate: end.toISOString(),
-            source: 'cotac'
-          });
-          imported++;
-        }
+        rowsToInsert.push({
+          productcode: row.code,
+          quantity: row.quantity,
+          startdate: start.toISOString(),
+          enddate: end.toISOString(),
+          source: 'cotac'
+        });
+        imported++;
       }
 
       if (productsToUpsert.length > 0) {
+        // Tenta buscar fotos pras novidades
         for (const p of productsToUpsert.slice(0, 30)) {
            p.imageUrl = await fetchProductImage(p.ean);
         }
@@ -214,9 +195,10 @@ export const dataRouter = router({
         }
       }
 
-      return { success: true, message: `${imported} registros processados.`, recordsProcessed: imported };
+      return { success: true, message: `${imported} registros de venda salvos!`, recordsProcessed: imported };
     }),
 
+  // Ferramenta pra varrer o catálogo e buscar fotos que estão faltando
   syncMissingImages: publicProcedure
     .mutation(async () => {
        const { data, error } = await supabase
@@ -241,17 +223,18 @@ export const dataRouter = router({
        return { success: true, synced };
     }),
 
+  // Limpa os dados de teste pra deixar o sistema pronto pro dia a dia da farmácia
   resetForProduction: publicProcedure.mutation(async () => {
      const db = await getDb();
-     if (!db) throw new Error("Offline");
+     if (!db) throw new Error("Offline!");
 
-     // Limpeza Pesada: Remove TUDO exceto o Catálogo de Produtos
+     // Limpeza Geral: Tira tudo que for de teste mas deixa o Catálogo de Produtos intacto
      await db.execute(sql`TRUNCATE TABLE quote_items CASCADE`);
      await db.execute(sql`TRUNCATE TABLE quote_sessions CASCADE`);
      await db.execute(sql`TRUNCATE TABLE sales_history CASCADE`);
      await db.execute(sql`TRUNCATE TABLE manual_ruptures CASCADE`);
      await db.execute(sql`TRUNCATE TABLE product_adjustments CASCADE`);
 
-     return { success: true, message: "Sistema resetado. Catálogo preservado." };
+     return { success: true, message: "Sistema limpo! Só o catálogo de produtos foi mantido." };
   }),
 });

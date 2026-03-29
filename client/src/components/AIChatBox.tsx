@@ -114,10 +114,10 @@ export function AIChatBox({
   messages,
   onSendMessage,
   isLoading = false,
-  placeholder = "Type your message...",
+  placeholder = "Pergunte qualquer coisa para a IA...",
   className,
   height = "600px",
-  emptyStateMessage = "Start a conversation with AI",
+  emptyStateMessage = "Como posso ajudar na sua farmácia hoje?",
   suggestedPrompts,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
@@ -192,9 +192,9 @@ export function AIChatBox({
       ref={containerRef}
       className={cn(
         "flex flex-col bg-card text-card-foreground rounded-lg border shadow-sm",
+        `h-[${height}]`,
         className
       )}
-      style={{ height }}
     >
       {/* Messages Area */}
       <div ref={scrollAreaRef} className="flex-1 overflow-hidden">
@@ -236,15 +236,11 @@ export function AIChatBox({
                     key={index}
                     className={cn(
                       "flex gap-3",
+                      shouldApplyMinHeight && `min-h-[${minHeightForLastMessage}px]`,
                       message.role === "user"
                         ? "justify-end items-start"
                         : "justify-start items-start"
                     )}
-                    style={
-                      shouldApplyMinHeight
-                        ? { minHeight: `${minHeightForLastMessage}px` }
-                        : undefined
-                    }
                   >
                     {message.role === "assistant" && (
                       <div className="size-8 shrink-0 mt-1 rounded-full bg-primary/10 flex items-center justify-center">
@@ -282,12 +278,10 @@ export function AIChatBox({
 
               {isLoading && (
                 <div
-                  className="flex items-start gap-3"
-                  style={
-                    minHeightForLastMessage > 0
-                      ? { minHeight: `${minHeightForLastMessage}px` }
-                      : undefined
-                  }
+                  className={cn(
+                    "flex items-start gap-3",
+                    minHeightForLastMessage > 0 && `min-h-[${minHeightForLastMessage}px]`
+                  )}
                 >
                   <div className="size-8 shrink-0 mt-1 rounded-full bg-primary/10 flex items-center justify-center">
                     <Sparkles className="size-4 text-primary" />

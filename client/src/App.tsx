@@ -7,7 +7,12 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Dashboard from "./pages/Dashboard";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
+  // Coletamos as rotas manualmente para o window.__WOUTER_ROUTES__, 
+  // eliminando a necessidade de "remendar" a biblioteca wouter! 🎉
+  if (typeof window !== "undefined") {
+    (window as any).__WOUTER_ROUTES__ = ["/", "/404"];
+  }
+
   return (
     <Switch>
       <Route path={"/"} component={Dashboard} />

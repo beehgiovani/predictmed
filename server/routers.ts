@@ -1,12 +1,13 @@
-import { COOKIE_NAME } from "@shared/const";
-import { getSessionCookieOptions } from "./_core/cookies";
-import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
-import { dataRouter } from "./dataRouter";
-import { cotaRouter } from "./cotaRouter";
+import { COOKIE_NAME } from "@shared/const.ts";
+import { getSessionCookieOptions } from "./_core/cookies.ts";
+import { systemRouter } from "./_core/systemRouter.ts";
+import { publicProcedure, router } from "./_core/trpc.ts";
+import { dataRouter } from "./dataRouter.ts";
+import { cotaRouter } from "./cotaRouter.ts";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
+    // Se precisar usar socket.io, veja como registrar a rota em server/_core/index.ts. 
+    // Todas as APIs devem começar com '/api/' pro gateway rotear certinho.
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),

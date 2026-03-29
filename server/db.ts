@@ -1,26 +1,32 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import { InsertUser, users } from "../drizzle/schema.ts";
+import { ENV } from './_core/env.ts';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _client: ReturnType<typeof postgres> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
+// Inicializa o Drizzle só quando precisar, pra não travar tudo se o banco estiver fora.
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  if (!_db && ENV.databaseUrl) {
     try {
-      _client = postgres(process.env.DATABASE_URL, {
+      _client = postgres(ENV.databaseUrl, {
         ssl: 'require',
         max: 5,
         idle_timeout: 20,
         connect_timeout: 10,
       });
       _db = drizzle(_client);
-      console.log("[Database] Connected to Supabase ✅");
+      
+      // Log de conexão (só pra avisar que subiu certinho)
+      if (!ENV.isProduction) {
+        console.log("[Banco de Dados] Conectado ao Supabase ✅");
+      }
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      if (!ENV.isProduction) {
+        console.warn("[Banco de Dados] Erro ao conectar:", error);
+      }
       _db = null;
     }
   }
@@ -32,14 +38,17 @@ export async function getClient() {
   return _client;
 }
 
+// Função pra salvar ou atualizar o usuário (Sync do Auth)
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
-    throw new Error("User openId is required for upsert");
+    throw new Error("O openId do usuário é obrigatório!");
   }
 
   const db = await getDb();
   if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn("[Banco de Dados] Não deu pra salvar o usuário: banco offline");
+    }
     return;
   }
 
@@ -66,6 +75,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       values.lastSignedIn = user.lastSignedIn;
       updateSet.lastSignedIn = user.lastSignedIn;
     }
+    
+    // Se for o meu ID (Bruno), eu viro admin direto
     if (user.role !== undefined) {
       values.role = user.role;
       updateSet.role = user.role;
@@ -87,15 +98,20 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       set: updateSet,
     });
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error("[Banco de Dados] Erro ao sincronizar usuário:", error);
+    }
     throw error;
   }
 }
 
+// Busca o usuário pelo ID único dele
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
   if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn("[Banco de Dados] Não deu pra buscar o usuário: banco offline");
+    }
     return undefined;
   }
 
@@ -104,4 +120,4 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Adicione mais queries do projeto aqui conforme o schema for crescendo.

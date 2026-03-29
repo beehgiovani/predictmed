@@ -1,17 +1,18 @@
-// Preconfigured storage helpers for Manus WebDev templates
-// Uses the Biz-provided storage proxy (Authorization: Bearer <token>)
+// Atalhos pra salvar arquivos na nuvem (fotos de produtos, etc)
+// Usa as credenciais do ambiente pra falar com o servidor de storage
 
 import { ENV } from './_core/env';
 
 type StorageConfig = { baseUrl: string; apiKey: string };
 
+// Pega as configurações de onde salvar os arquivos
 function getStorageConfig(): StorageConfig {
   const baseUrl = ENV.forgeApiUrl;
   const apiKey = ENV.forgeApiKey;
 
   if (!baseUrl || !apiKey) {
     throw new Error(
-      "Storage proxy credentials missing: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY"
+      "Ih, faltam as chaves do Storage! Verifique BUILT_IN_FORGE_API_URL e BUILT_IN_FORGE_API_KEY no .env"
     );
   }
 
@@ -67,6 +68,7 @@ function buildAuthHeaders(apiKey: string): HeadersInit {
   return { Authorization: `Bearer ${apiKey}` };
 }
 
+// Salva um arquivo (tipo uma foto de remédio) no servidor
 export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
@@ -85,13 +87,14 @@ export async function storagePut(
   if (!response.ok) {
     const message = await response.text().catch(() => response.statusText);
     throw new Error(
-      `Storage upload failed (${response.status} ${response.statusText}): ${message}`
+      `Não deu pra subir o arquivo (${response.status}): ${message}`
     );
   }
   const url = (await response.json()).url;
   return { key, url };
 }
 
+// Pega o endereço de um arquivo já salvo
 export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {
   const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);

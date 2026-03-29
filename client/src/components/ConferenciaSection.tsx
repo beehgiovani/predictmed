@@ -36,10 +36,10 @@ export default function ConferenciaSection() {
         xmlContent: content 
       });
       
-      toast.success(`Conferência concluída! ${res.matchedCount} itens processados.`);
+      toast.success(`Tudo certo! Conferi ${res.matchedCount} produtos pelo XML.`);
       refetchItems();
     } catch (err: any) {
-      toast.error("Erro ao processar XML: " + err.message);
+      toast.error("Tive um problema na leitura desse XML: " + err.message);
     } finally {
       setXmlUploading(false);
       e.target.value = "";
@@ -50,9 +50,9 @@ export default function ConferenciaSection() {
      try {
         await updateArrived.mutateAsync({ itemId, newQuantity: qty });
         refetchItems();
-        toast.success("Item conferido!");
+        toast.success("Item marcado como recebido!");
      } catch (e) {
-        toast.error("Erro ao atualizar.");
+        toast.error("Erro ao atualizar o item.");
      }
   };
 
@@ -62,9 +62,9 @@ export default function ConferenciaSection() {
         <div>
            <h2 className="text-2xl font-bold flex items-center gap-2 text-slate-800">
               <Package className="w-6 h-6 text-green-600" />
-              Conferência de Recebimento
+              Conferir o que Chegou
            </h2>
-           <p className="text-muted-foreground italic">Bata o que você pediu contra o XML ou faça a conferência manual na prateleira.</p>
+           <p className="text-muted-foreground italic">Compare o que você pediu com o XML da nota ou marque manualmente o que chegou na prateleira.</p>
         </div>
 
         <div className="flex gap-2">
@@ -74,7 +74,7 @@ export default function ConferenciaSection() {
              onChange={(e) => setSelectedSessionId(Number(e.target.value))}
              value={selectedSessionId || ""}
            >
-              <option value="">Selecione um Pedido...</option>
+              <option value="">Escolha um pedido para conferir...</option>
               {sessions?.map((s: any) => (
                 <option key={s.id} value={s.id}>{s.name} ({new Date(s.createdAt).toLocaleDateString()})</option>
               ))}
@@ -83,7 +83,7 @@ export default function ConferenciaSection() {
            {selectedSessionId && (
               <Button variant="outline" className="relative cursor-pointer" disabled={xmlUploading}>
                  {xmlUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileCode className="w-4 h-4 mr-2" />}
-                 Importar XML (NFe)
+                 Ler Nota Fiscal (XML)
                  <input 
                     type="file" 
                     title="Upload XML NFe"
@@ -99,7 +99,7 @@ export default function ConferenciaSection() {
       {!selectedSessionId ? (
         <Card className="p-20 text-center bg-slate-50/50 border-dashed">
            <Package className="w-16 h-16 text-muted-foreground/30 mx-auto mb-4" />
-           <h3 className="text-lg font-medium text-muted-foreground">Selecione um pedido enviado acima para iniciar a conferência.</h3>
+           <h3 className="text-lg font-medium text-muted-foreground">Escolha lá em cima qual pedido você quer conferir agora.</h3>
         </Card>
       ) : (
         <Card className="overflow-hidden border-green-100 shadow-sm">
@@ -108,17 +108,17 @@ export default function ConferenciaSection() {
               <TableRow>
                 <TableHead className="w-[80px]">Foto</TableHead>
                 <TableHead>Produto / Código</TableHead>
-                <TableHead className="text-center">Pedido</TableHead>
-                <TableHead className="text-center">Chegou</TableHead>
+                <TableHead className="text-center">Pedido (IA)</TableHead>
+                <TableHead className="text-center">Contagem</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Ação</TableHead>
+                <TableHead className="text-right">Ajustar</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {itemsLoading ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-10">Carregando itens...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center py-10">Buscando a lista...</TableCell></TableRow>
               ) : items?.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-10">Nenhum item nesta sessão.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center py-10">Não achei nenhum produto nesse pedido.</TableCell></TableRow>
               ) : (items as any[])?.map((item: any) => (
                 <TableRow key={item.id} className={item.arrivedQuantity !== null ? (item.arrivedQuantity >= (item.userConfirmedQuantity || item.suggestedQuantity) ? 'bg-green-50/30' : 'bg-red-50/30') : ''}>
                   <TableCell>
@@ -144,11 +144,11 @@ export default function ConferenciaSection() {
                   </TableCell>
                   <TableCell>
                     {item.arrivedQuantity === null ? (
-                      <Badge variant="outline">Pendente</Badge>
+                      <Badge variant="outline">Ainda não chegou</Badge>
                     ) : item.arrivedQuantity >= (item.userConfirmedQuantity || item.suggestedQuantity) ? (
-                      <Badge className="bg-green-100 text-green-700">✓ Completo</Badge>
+                      <Badge className="bg-green-100 text-green-700">✓ Tudo Certinho</Badge>
                     ) : (
-                      <Badge className="bg-red-100 text-red-700">⚠️ Falta ({ (item.userConfirmedQuantity || item.suggestedQuantity) - item.arrivedQuantity })</Badge>
+                      <Badge className="bg-red-100 text-red-700">⚠️ Faltando ({ (item.userConfirmedQuantity || item.suggestedQuantity) - item.arrivedQuantity })</Badge>
                     )}
                   </TableCell>
                   <TableCell className="text-right">
@@ -184,7 +184,7 @@ export default function ConferenciaSection() {
         <Alert className="bg-blue-50 border-blue-200">
            <AlertTriangle className="w-4 h-4 text-blue-600" />
            <AlertDescription className="text-blue-800 text-xs">
-              <strong>Dica:</strong> Itens marcados com ⚠️ Falta serão automaticamente incluídos com alerta na sua próxima sugestão de compra até que o estoque seja normalizado.
+              <strong>Dica do PredictMed:</strong> O que estiver faltando hoje eu já anoto pra te lembrar de comprar na próxima vez!
            </AlertDescription>
         </Alert>
       )}

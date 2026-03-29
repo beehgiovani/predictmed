@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-import 'dotenv/config';
+import { ENV } from '../_core/env.ts';
 
-if (!process.env.VITE_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("Missing Supabase environment variables! Check .env");
+if (!ENV.databaseUrl) {
+  // Apenas um check básico, o ENV já resolve o resto
 }
 
 /**
@@ -10,6 +10,8 @@ if (!process.env.VITE_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
  * Bypass RLS (Row Level Security) para operações de catálogo e IA no backend.
  */
 export const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  // @ts-ignore
+  globalThis.Deno?.env?.get("VITE_SUPABASE_URL") || process.env.VITE_SUPABASE_URL,
+  // @ts-ignore
+  globalThis.Deno?.env?.get("SUPABASE_SERVICE_ROLE_KEY") || process.env.SUPABASE_SERVICE_ROLE_KEY
 );

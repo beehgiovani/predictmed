@@ -19,7 +19,7 @@ export default function ManualRuptureEntry() {
     onSuccess: (data) => {
       setLastScanned({ name: data.productName, time: new Date().toLocaleTimeString() });
       setEan("");
-      setStatus({ type: 'success', message: `Registrado: ${data.productName}` });
+      setStatus({ type: 'success', message: `Beleza! Registrei: ${data.productName}` });
       setTimeout(() => setStatus(null), 3000);
       if (!isCameraActive) inputRef.current?.focus();
     },
@@ -88,13 +88,13 @@ export default function ManualRuptureEntry() {
                 className="inline-flex items-center gap-4 bg-white/10 px-6 py-2 rounded-2xl backdrop-blur-md border border-white/10 mb-6"
               >
                 <AlertCircle className="w-5 h-5 text-rose-400" />
-                <span className="text-xs font-black text-rose-100 uppercase tracking-widest leading-none">Alerta de Ruptura</span>
+                <span className="text-xs font-black text-rose-100 uppercase tracking-widest leading-none">Aviso de Falta</span>
               </motion.div>
               <h2 className="text-4xl md:text-5xl font-black text-white tracking-tighter leading-tight">
-                Scanner Inteligente <br/> de Venda Perdida
+                Registrar Produto <br/> que Faltou
               </h2>
               <p className="text-slate-400 mt-6 font-semibold text-base md:text-lg max-w-md">
-                Bipe o produto solicitado pelo cliente para alimentar a I.A. automaticamente.
+                Bipe o produto que o cliente pediu e não tinha. Eu aviso a IA pra você comprar melhor.
               </p>
             </div>
             
@@ -102,7 +102,7 @@ export default function ManualRuptureEntry() {
 
               <div className="flex items-center gap-3 text-emerald-400 font-black text-[10px] uppercase tracking-widest bg-emerald-500/10 px-6 py-2 rounded-full border border-emerald-500/20">
                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                 Link Supabase Ativo
+                 Conectado ao Banco de Dados
               </div>
             </div>
           </div>
@@ -125,7 +125,7 @@ export default function ManualRuptureEntry() {
                       <Keyboard className="absolute left-8 top-1/2 -translate-y-1/2 text-slate-400 w-8 h-8 transition-colors group-focus-within:text-blue-500" />
                       <Input
                         ref={inputRef}
-                        placeholder="Bipe com o Leitor..."
+                        placeholder="Pode bipar agora..."
                         value={ean}
                         onChange={(e) => setEan(e.target.value)}
                         className="h-24 md:h-28 pl-24 pr-10 rounded-[2rem] border-2 border-slate-100 bg-white shadow-xl text-3xl font-black text-slate-800 placeholder:text-slate-300 transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 focus-visible:ring-0"
@@ -159,8 +159,8 @@ export default function ManualRuptureEntry() {
                           <CheckCircle2 className="w-7 h-7 text-emerald-500 group-hover:text-white" />
                         </div>
                         <div>
-                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Status Periférico</p>
-                          <p className="text-base font-black text-slate-700">Leitor USB Conectado</p>
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Aparelho</p>
+                          <p className="text-base font-black text-slate-700">Leitor de Mão Conectado</p>
                         </div>
                      </div>
                      <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center gap-6 group hover:bg-white transition-all hover:shadow-xl text-balance">
@@ -168,15 +168,15 @@ export default function ManualRuptureEntry() {
                           <ShieldCheck className="w-7 h-7 text-emerald-500 group-hover:text-white" />
                         </div>
                         <div>
-                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Segurança de Dados</p>
-                          <p className="text-base font-black text-slate-700">IA Auto-Lookup Ativo</p>
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Sincronização</p>
+                          <p className="text-base font-black text-slate-700">Busca Inteligente Ativa</p>
                         </div>
                      </div>
                   </div>
 
                   <div className="relative flex items-center gap-10">
                      <div className="h-px bg-slate-200 flex-1" />
-                     <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.4em]">Alternativa Digital</span>
+                     <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.4em]">Ou use o celular</span>
                      <div className="h-px bg-slate-200 flex-1" />
                   </div>
 
@@ -186,7 +186,7 @@ export default function ManualRuptureEntry() {
                     title="Ativar Câmera"
                   >
                     <Scan className="w-8 h-8 group-hover:rotate-90 transition-transform duration-500" />
-                    Abrir Scanner Mobile
+                    Usar Câmera do Celular
                   </Button>
                 </motion.div>
               ) : (
@@ -207,7 +207,7 @@ export default function ManualRuptureEntry() {
                     className="w-full h-20 rounded-[2rem] text-slate-500 font-black text-lg hover:bg-slate-100 transition-all uppercase tracking-widest"
                     onClick={() => setIsCameraActive(false)}
                   >
-                    Cancelar e Voltar ao Leitor
+                    Voltar para o Leitor de Mão
                   </Button>
                 </motion.div>
               )}
@@ -230,12 +230,12 @@ export default function ManualRuptureEntry() {
                       <CheckCircle2 className="w-10 h-10" />
                     </div>
                     <div>
-                      <p className="text-xs font-black text-emerald-100 uppercase tracking-[0.3em] mb-3">Registro de Falta Processado</p>
+                      <p className="text-xs font-black text-emerald-100 uppercase tracking-[0.3em] mb-3">Falta registrada com sucesso!</p>
                       <h4 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-none">{lastScanned.name}</h4>
                     </div>
                   </div>
                   <div className="bg-black/10 px-8 py-4 rounded-2xl backdrop-blur-md">
-                    <p className="text-[10px] text-emerald-100 font-black uppercase tracking-widest mb-1 opacity-60">Sincronizado às</p>
+                    <p className="text-[10px] text-emerald-100 font-black uppercase tracking-widest mb-1 opacity-60">Gravado às</p>
                     <p className="text-2xl font-black text-white">{lastScanned.time}</p>
                   </div>
                 </div>
@@ -248,7 +248,7 @@ export default function ManualRuptureEntry() {
       <div className="flex justify-center flex-wrap gap-12 py-10 opacity-40">
         <div className="flex items-center gap-4 text-xs font-black text-slate-400 uppercase tracking-[0.3em]">
            <History className="w-6 h-6" /> 
-           Inteligência que Abastece sua Próxima Compra
+           Eu aprendo o que falta para você comprar melhor.
         </div>
       </div>
     </motion.div>

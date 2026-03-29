@@ -1,42 +1,45 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import "dotenv/config";
+import { ENV } from "../_core/env.ts";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
+// Inicializa a IA do Google. Se não tiver a chave, o sistema vai pro cálculo matemático de segurança.
+const genAI = new GoogleGenerativeAI(ENV.forgeApiKey || "");
+const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
 export interface AISuggestionInput {
   productName: string;
   productCode: string;
   targetDays: number;
-  salesSummary: string; // Ex: "5 unidades em 10 dias"
+  salesSummary: string; // Ex: "Vendeu 5 unidades nos últimos 10 dias"
   avgDailyTurnover: number;
-  userAdjustmentFactor: number; // Ex: 1.2 (pede 20% a mais)
-  lostSalesCount: number; // Qtd de vezes que pediram no balcão e não tinha
+  userAdjustmentFactor: number; // Factor de segurança (ex: 1.2 significa que o Bruno gosta de 20% a mais)
+  lostSalesCount: number; // Quantas vezes o pessoal do balcão disse que faltou esse item
   isCurrentlyMissing: boolean;
 }
 
+// Essa é a função que "pergunta" pra IA qual a melhor quantidade pra comprar
 export async function getSmartAISuggestion(input: AISuggestionInput) {
   const prompt = `
-    Você é o Assistente de Compras Especializado da PredictMed, uma farmácia de alto giro. 
+    Você é o Assistente de Compras do Bruno, funcionario de uma farmácia de alto giro chamada Drogaria santo Antonio.
     Seu objetivo é sugerir a quantidade ideal de compra para o produto "${input.productName}" (Cód: ${input.productCode}).
     
-    DADOS DO PRODUTO:
-    - Período Alvo de Estoque: ${input.targetDays} dias.
-    - Giro Diário Médio (Matemático): ${input.avgDailyTurnover.toFixed(2)} unidades/dia.
-    - Histórico de Vendas Recente: ${input.salesSummary}.
-    - Comportamento do Usuário: O farmacêutico costuma ajustar as sugestões em ${((input.userAdjustmentFactor - 1) * 100).toFixed(0)}% para este item.
-    - Procura no Balcão (Venda Perdida): Este item foi procurado ${input.lostSalesCount} vezes manualmente por clientes enquanto estava em falta.
-    - Status de Ruptura: ${input.isCurrentlyMissing ? 'O item está atualmente em falta no estoque físico.' : 'O item tem estoque, mas precisa de reposição.'}
+    ESTADO ATUAL DA PRATELEIRA:
+    - O Bruno quer estoque para cobrir ${input.targetDays} dias.
+    - O giro diário real (calculado) é de ${input.avgDailyTurnover.toFixed(2)} unidades por dia.
+    - Resumo das vendas: ${input.salesSummary}.
+    - O Bruno costuma ajustar nossas sugestões em ${((input.userAdjustmentFactor - 1) * 100).toFixed(0)}% (isso é a margem de segurança dele).
+    - Venda Perdida: No balcão, os clientes já pediram esse item ${input.lostSalesCount} vezes enquanto não tínhamos.
+    - Status: ${input.isCurrentlyMissing ? 'O item ACABOU. Precisamos repor urgente!' : 'Ainda tem, mas precisamos garantir o abastecimento.'}
 
-    REGRAS DE DECISÃO:
-    1. Se houver "Venda Perdida" alta (>2), aumente a sugestão para cobrir a demanda reprimida.
-    2. Considere o "Fator de Ajuste" do usuário como uma preferência de segurança. Se ele sempre pede mais, a IA deve sugerir mais.
-    3. Se o giro diário for zero, mas o item teve procuras manuais, sugira uma quantidade mínima para teste (ex: 1 ou 2 unidades).
+    SUAS ORIENTAÇÕES:
+    1. Se teve muita venda perdia (balcão > 2), capricha na sugestão pra não faltar de novo.
+    2. Respeita o fator de ajuste do Bruno. Se ele gosta de estoque alto, sugira mais.
+    3. Se o giro diário for baixo mas as pessoas estão pedindo no balcão, sugira pelo menos 1 ou 2 pra teste.
+    4. Seja direto e prático, como um bom comprador de farmácia.
 
-    RESPONDA APENAS EM FORMATO JSON:
+    RESPONDA APENAS EM JSON (SEM MARKDOWN):
     {
-      "suggestedQuantity": number,
-      "reasoning": "Breve explicação do porquê deste valor (máximo 150 caracteres)"
+      "suggestedQuantity": numero,
+      "reasoning": "Explicação curta pro Bruno (máximo 140 caracteres)"
     }
   `;
 
@@ -45,16 +48,19 @@ export async function getSmartAISuggestion(input: AISuggestionInput) {
     const response = await result.response;
     const text = response.text();
     
-    // Limpeza de markdown se a IA retornar ```json ... ```
+    // Tira qualquer sujeira de markdown (tipo ```json) que a IA possa ter mandado
     const jsonStr = text.replace(/```json|```/g, "").trim();
     return JSON.parse(jsonStr) as { suggestedQuantity: number; reasoning: string };
   } catch (error) {
-    console.error("[GeminiAI] Erro na sugestão inteligente:", error);
-    // Fallback matemático simples caso a IA falhe ou atinja quota
+    if (process.env.NODE_ENV !== 'production') {
+      console.error("[IA Gemini] Deu um erro na sugestão:", error);
+    }
+    
+    // Se a IA falhar (quota ou erro), a gente usa a matemática clássica de segurança
     const mathSuggestion = Math.ceil(input.avgDailyTurnover * input.targetDays * input.userAdjustmentFactor);
     return { 
       suggestedQuantity: mathSuggestion, 
-      reasoning: "Cálculo matemático preventivo (IA indisponível)." 
+      reasoning: "Usei o cálculo matemático padrão (IA temporariamente fora do ar)." 
     };
   }
 }

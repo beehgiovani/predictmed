@@ -38,7 +38,7 @@ export default function CotacaoSection() {
     if (!file) return;
 
     if (!sessionName || !startDate || !endDate || targetDays < 1) {
-      toast.error("Preencha todos os campos da Cotação antes de enviar o arquivo.");
+      toast.error("Ficou faltando preencher algum campo. Dá uma conferida antes de subir o arquivo.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -55,11 +55,11 @@ export default function CotacaoSection() {
       });
 
       if (result.success) {
-        toast.success(`Cotação Gerada com Sucesso!`);
+        toast.success(`Cotação pronta! Pode revisar agora.`);
         setActiveSessionId(result.sessionId);
       }
     } catch (err: any) {
-      toast.error(err.message || "Erro ao processar TXT da Cotação");
+      toast.error(err.message || "Ih, tive um problema pra ler esse arquivo TXT. Verifique o formato.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -76,17 +76,17 @@ export default function CotacaoSection() {
       const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
       link.href = url;
-      link.download = `COTAC_SUGERIDA_${sessionName.replace(/\s+/g, '_')}.txt`;
+      link.download = `PEDIDO_SUGERIDO_${sessionName.replace(/\s+/g, '_')}.txt`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      toast.success("Arquivo Cotefácil Exportado com Sucesso!");
-      setActiveSessionId(null); // Reseta a tela ou poderia manter o histórico
+      toast.success("Arquivo pronto e baixado! Já pode mandar pro Cotefácil.");
+      setActiveSessionId(null); 
       setSessionName("");
     } catch (e: any) {
-      toast.error(e.message || "Erro na exportação");
+      toast.error(e.message || "Não consegui gerar o arquivo de exportação. Tenta de novo?");
     }
   };
 
@@ -110,12 +110,12 @@ export default function CotacaoSection() {
       <div className="cotacao-container">
         <div className="revision-header shadow-sm p-6 bg-white/40 rounded-[2rem] backdrop-blur-md">
           <div className="revision-title-area">
-            <h2>Revisão de Cotação: {sessionData.session.name}</h2>
-            <p>Analise as sugestões da I.A. Inteligente (Estoque para {sessionData.session.targetDays} dias)</p>
+            <h2>Revisando: {sessionData.session.name}</h2>
+            <p>Confira o que a IA sugeriu para durar {sessionData.session.targetDays} dias de estoque.</p>
           </div>
           <Button onClick={handleExport} className="bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-600/20 hover:shadow-blue-600/40 transition-all h-14 px-10 font-bold text-lg rounded-2xl group">
             <Save className="w-5 h-5 mr-3 group-hover:scale-110 transition-transform" />
-            Salvar e Exportar Cotefácil
+            Gerar Arquivo p/ Cotefácil
           </Button>
         </div>
 
@@ -127,16 +127,16 @@ export default function CotacaoSection() {
                   <th className="predictive-th">ID / EAN</th>
                   <th className="predictive-th">Produto</th>
                   <th className="predictive-th">Preço Atual</th>
-                  <th className="predictive-th text-center">Vendas Base</th>
-                  <th className="predictive-th text-center text-blue-600">Sugestão Preditiva</th>
-                  <th className="predictive-th text-center text-green-700">Quantidade Confirmada</th>
+                  <th className="predictive-th text-center">Vendas no Período</th>
+                  <th className="predictive-th text-center text-blue-600">Sugestão da IA</th>
+                  <th className="predictive-th text-center text-green-700">Quanto vou pedir?</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {sessionData.items.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-8 py-20 text-center text-slate-400 italic font-medium">
-                      Nenhum item válido encontrado no TXT para esta cotação.
+                      Não achei nenhum produto válido nesse arquivo TXT.
                     </td>
                   </tr>
                 ) : (
@@ -161,7 +161,7 @@ export default function CotacaoSection() {
                           <div className="flex flex-col">
                             <span className="font-black text-slate-800 leading-tight block max-w-[320px] text-base">{row.productName}</span>
                             {row.item.isMissing && (
-                              <Badge variant="destructive" className="mt-2 w-fit bg-rose-600 text-[9px] px-2.5 h-4.5 font-black uppercase tracking-wider">Falta Detectada</Badge>
+                              <Badge variant="destructive" className="mt-2 w-fit bg-rose-600 text-[9px] px-2.5 h-4.5 font-black uppercase tracking-wider">🚨 TÁ EM FALTA!</Badge>
                             )}
                           </div>
                         </div>
@@ -182,15 +182,15 @@ export default function CotacaoSection() {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <button className="ai-insight-badge" title="Ver Insights da IA">
-                                  <Info className="w-3 h-3" /> IA Insight
+                                  <Info className="w-3 h-3" /> Por que pedir isso?
                                 </button>
                               </TooltipTrigger>
                               <TooltipContent className="max-w-[240px] text-xs glassmorphism p-4 border-blue-100 shadow-2xl">
                                 <p className="font-black text-blue-700 flex items-center gap-2 mb-2">
-                                  <Zap className="w-4 h-4 text-amber-500 fill-amber-500" /> Raciocínio Preditivo
+                                  <Zap className="w-4 h-4 text-amber-500 fill-amber-500" /> Raciocínio da IA
                                 </p>
                                 <p className="text-slate-600 leading-relaxed font-medium">
-                                  {row.item.aiReasoning || "Cálculo baseado no giro diário, tendências e margem de segurança do setor farmacêutico."}
+                                  {row.item.aiReasoning || "Eu vi quanto você vende por dia e calculei uma margem de segurança pra não faltar no balcão."}
                                 </p>
                               </TooltipContent>
                             </Tooltip>
@@ -222,7 +222,7 @@ export default function CotacaoSection() {
       <Alert className="bg-blue-50/50 border-blue-100 backdrop-blur-sm p-6 rounded-[1.5rem] border-2">
         <AlertCircle className="h-6 w-6 text-blue-600" />
         <AlertDescription className="text-blue-800 font-semibold pl-2">
-          A Cotação Diária lê um arquivo TXT exportado do seu ERP, calcula as sugestões via Algoritmo Preditivo e te devolve o arquivo pronto para o formato do Cotefácil.
+          O PredictMed lê seu arquivo de vendas, calcula o que você precisa comprar e gera o arquivo prontinho pra subir no Cotefácil.
         </AlertDescription>
       </Alert>
 
@@ -234,25 +234,25 @@ export default function CotacaoSection() {
                 <FileText className="w-10 h-10 text-blue-600" />
               </div>
               <h3 className="text-5xl font-black mb-6 leading-[1.1] tracking-tighter">
-                Gerar Nova <br />Cotação Smart
+                Nova Sugestão <br />de Compra
               </h3>
               <p className="text-blue-100 font-bold text-lg max-w-[300px] leading-relaxed">
-                O PredictMed analisa seu consumo histórico e sugere a compra ideal.
+                Eu olho o que você vendeu e te digo o que vale a pena comprar agora.
               </p>
             </div>
             <div className="mt-12 flex items-center gap-5 py-5 px-8 bg-white/10 rounded-3xl border border-white/20 backdrop-blur-sm">
                <Zap className="w-8 h-8 text-amber-400 fill-amber-400" />
-               <p className="text-xs font-black leading-relaxed uppercase tracking-wider">Gemini 3.1 Flash Lite Active Intelligence</p>
+               <p className="text-xs font-black leading-relaxed uppercase tracking-wider">Inteligência PredictMed Ativa</p>
             </div>
           </div>
 
           <div className="ui-form-right-panel">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
               <div className="space-y-4">
-                <Label htmlFor="session-name" className="text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] ml-1">Identificação do Pedido</Label>
+                <Label htmlFor="session-name" className="text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] ml-1">Nome dessa Cotação</Label>
                 <Input 
                   id="session-name"
-                  placeholder="Ex: Cotação Final de Semana" 
+                  placeholder="Ex: Pedido de Segunda" 
                   className="form-input-premium"
                   value={sessionName}
                   onChange={e => setSessionName(e.target.value)}
@@ -260,7 +260,7 @@ export default function CotacaoSection() {
               </div>
               
               <div className="space-y-4">
-                <Label htmlFor="target-days" className="text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] ml-1">Duração do Estoque</Label>
+                <Label htmlFor="target-days" className="text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] ml-1">Para quantos dias?</Label>
                 <div className="flex items-center gap-3">
                   <Input 
                     id="target-days"
@@ -274,7 +274,7 @@ export default function CotacaoSection() {
               </div>
 
               <div className="space-y-4">
-                <Label htmlFor="start-date" className="text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] ml-1">Início da Amostragem</Label>
+                <Label htmlFor="start-date" className="text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] ml-1">Vendas de quando? (Início)</Label>
                 <Input 
                   id="start-date"
                   type="date"
@@ -285,7 +285,7 @@ export default function CotacaoSection() {
               </div>
 
               <div className="space-y-4">
-                <Label htmlFor="end-date" className="text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] ml-1">Fim da Amostragem</Label>
+                <Label htmlFor="end-date" className="text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] ml-1">Vendas até quando? (Fim)</Label>
                 <Input 
                   id="end-date"
                   type="date"
@@ -304,16 +304,16 @@ export default function CotacaoSection() {
               <div className="p-6 bg-white shadow-2xl rounded-3xl mb-6 group-hover:-translate-y-2 transition-transform duration-500 border border-slate-50">
                 <Upload className="w-10 h-10 text-blue-600" />
               </div>
-              <p className="font-black text-slate-900 text-2xl tracking-tight">Subir TXT do ERP</p>
-              <p className="text-slate-400 text-sm mt-2 font-medium">Selecione o arquivo de vendas exportado</p>
+              <p className="font-black text-slate-900 text-2xl tracking-tight">Subir Arquivo de Vendas</p>
+              <p className="text-slate-400 text-sm mt-2 font-medium">Escolha o arquivo TXT que você tirou do seu sistema.</p>
               
               <Button
                 variant="link"
                 className="mt-8 text-blue-600 font-black text-lg group-hover:underline"
                 disabled={uploading}
-                title={uploading ? "Aguarde..." : "Clique para processar"}
+                title={uploading ? "Aguarde..." : "Clique para calcular"}
               >
-                {uploading ? "Sintonizando Cérebro I.A..." : "Processar Agora"}
+                {uploading ? "Pensando aqui..." : "Calcular Sugestão"}
               </Button>
             </div>
             

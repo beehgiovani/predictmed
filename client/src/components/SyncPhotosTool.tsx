@@ -13,9 +13,9 @@ export default function SyncPhotosTool() {
     setIsSyncing(true);
     try {
       const res = await syncMutation.mutateAsync();
-      toast.success(`Sincronização Finalizada! ${res.synced} fotos recuperadas.`);
+      toast.success(`Tudo pronto! Consegui achar ${res.synced} fotos novas para o seu catálogo.`);
     } catch (err: any) {
-      toast.error(err.message || "Falha na sincronização");
+      toast.error(err.message || "Ih, deu erro na hora de buscar as fotos. Tenta de novo?");
     } finally {
       setIsSyncing(false);
     }
@@ -28,15 +28,14 @@ export default function SyncPhotosTool() {
             <Sparkles className="w-6 h-6 text-amber-600" />
          </div>
          <div>
-            <h3 className="text-lg font-bold text-slate-900">Enriquecimento Visual I.A.</h3>
-            <p className="text-xs text-slate-500 italic">Busca automática de fotos via EAN para o catálogo.</p>
+            <h3 className="text-lg font-bold text-slate-900">Fotos Automáticas (I.A.)</h3>
+            <p className="text-xs text-slate-500 italic">Vou procurar as fotos dos remédios pelo código de barras.</p>
          </div>
       </div>
 
       <div className="space-y-4">
          <p className="text-xs text-slate-600 leading-relaxed">
-            Seus produtos importados sem EAN ou de backups antigos podem estar sem imagem. 
-            Esta ferramenta varre o banco e tenta recuperar a foto real de cada medicamento via banco de dados nacional.
+            Se algum produto subiu sem foto, essa ferramenta varre o banco de dados nacional e tenta recuperar a imagem real de cada medicamento para o seu catálogo.
          </p>
          
          <Button 
@@ -47,19 +46,19 @@ export default function SyncPhotosTool() {
             {isSyncing ? (
                <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Sincronizando Galeria...
+                  Procurando fotos...
                </>
             ) : (
                <>
                   <ImagePlus className="w-4 h-4 mr-2" />
-                  Sincronizar Fotos Faltantes
+                  Buscar fotos que faltam
                </>
             )}
          </Button>
 
          <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
             <CheckCircle2 className="w-3 h-3" />
-            Válido para itens com código de barras (EAN-13)
+            Só funciona para itens com código de barras (EAN).
          </div>
       </div>
     </Card>

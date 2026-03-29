@@ -1,13 +1,14 @@
 import { z } from "zod";
-import { publicProcedure, router } from "./_core/trpc";
-import { getDb } from "./db";
-import { quoteSessions, quoteItems, salesHistory, products, manualRuptures, productAdjustments } from "../drizzle/schema";
+import { publicProcedure, router } from "./_core/trpc.ts";
+import { getDb } from "./db.ts";
+import { quoteSessions, quoteItems, salesHistory, products, manualRuptures, productAdjustments } from "../drizzle/schema.ts";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
-import { getSmartAISuggestion } from "./lib/gemini";
+import { getSmartAISuggestion } from "./lib/gemini.ts";
 
-// Função de IA que unifica matemática + comportamento do usuário + vendas perdidas
+// Essa é a função principal que faz a mágica da IA: junta o cálculo matemático, 
+// o jeito que eu gosto de comprar e as vendas que a gente perdeu no balcão.
 async function calculateSmartSuggestion(db: any, productCode: string, targetDays: number) {
-  // 1. Math Base (Giro Diário)
+  // 1. Base Matemática: Calcula quanto o produto gira por dia
   const history = await db.select({
     qty: salesHistory.quantity,
     start: salesHistory.startDate,
@@ -24,22 +25,22 @@ async function calculateSmartSuggestion(db: any, productCode: string, targetDays
   }
   const avgGiro = totalDaysCounted > 0 ? (totalDailyTurnover / totalDaysCounted) : 0;
 
-  // 2. Comportamento do Usuário (Learning)
+  // 2. Aprendizado: Vê se eu costumo pedir mais ou menos que a IA sugere
   const pref = await db.select().from(productAdjustments).where(eq(productAdjustments.productCode, productCode));
-  const adjFactor = pref[0] ? parseFloat(pref[0].averageAdjustmentPercent) : 1.2; // Default 20% margem
+  const adjFactor = pref[0] ? parseFloat(pref[0].averageAdjustmentPercent) : 1.2; // Se não tiver ajuste, coloco 20% de margem por padrão
 
-  // 3. Venda Perdida (Manual Rupture)
+  // 3. Venda Perdida: Verifica se alguém pediu esse produto e não tinha (ruptura manual)
   const lost = await db.select().from(manualRuptures).where(and(
     eq(manualRuptures.productCode, productCode),
     eq(manualRuptures.status, 'pending')
   ));
   const lostCount = lost[0] ? lost[0].askedCount : 0;
 
-  // 4. Atributos do Produto
+  // 4. Pega os detalhes do produto pra IA saber com o que tá lidando
   const prod = await db.select().from(products).where(eq(products.code, productCode));
   const productName = prod[0]?.name || "Produto Desconhecido";
 
-  // 5. Chamada para o Cérebro Gemini 3.1 Flash Lite
+  // 5. Manda tudo pro "cérebro" da aplicação (Gemini) gerar a sugestão final
   const aiResult = await getSmartAISuggestion({
     productName,
     productCode,
@@ -48,27 +49,27 @@ async function calculateSmartSuggestion(db: any, productCode: string, targetDays
     avgDailyTurnover: avgGiro,
     userAdjustmentFactor: adjFactor,
     lostSalesCount: lostCount,
-    isCurrentlyMissing: false // Simplified for now
+    isCurrentlyMissing: false 
   });
 
   return aiResult;
 }
 
 export const cotaRouter = router({
-  // Listagem de todas as sessões para Conferência/Relatórios
+  // Pega todas as sessões de cotação pra mostrar na lista
   getQuoteSessions: publicProcedure
     .query(async () => {
       const db = await getDb();
-      if (!db) throw new Error("Offline");
+      if (!db) throw new Error("Ops, o banco tá offline!");
       return await db.select().from(quoteSessions).orderBy(desc(quoteSessions.createdAt));
     }),
 
-  // Retorna os dados para a Tela Analítica de Carrinho / Revisão / Conferência
+  // Puxa os itens de uma sessão específica (usado na revisão e conferência)
   getQuoteItems: publicProcedure
     .input(z.object({ sessionId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      if (!db) throw new Error("Offline");
+      if (!db) throw new Error("Sem conexão com o banco");
 
       const items = await db.select({
         id: quoteItems.id,
@@ -80,7 +81,7 @@ export const cotaRouter = router({
         arrivedQuantity: quoteItems.arrivedQuantity,
         isMissing: quoteItems.isMissing,
         priceAtTime: quoteItems.priceAtTime,
-        aiReasoning: sql`'Análise preditiva baseada em giro diário e estoque.'` as any, // Placeholder for existing sessions
+        aiReasoning: sql`'Análise baseada no giro e estoque.'` as any, 
         product: {
           name: products.name,
           imageUrl: products.imageUrl,
@@ -94,24 +95,25 @@ export const cotaRouter = router({
       return items;
     }),
 
+  // Cria uma cotação nova a partir do arquivo TXT que eu subo
   createSessionFromTxt: publicProcedure
     .input(
       z.object({
         fileContent: z.string(),
         sessionName: z.string(),
-        startDate: z.string(), // ISO Date
-        endDate: z.string(),   // ISO Date
+        startDate: z.string(), 
+        endDate: z.string(),   
         targetDays: z.number().default(3),
       })
     )
     .mutation(async ({ input }) => {
       const db = await getDb();
-      if (!db) throw new Error("Banco de Dados não conectado");
+      if (!db) throw new Error("Ih, o banco de dados não conectou");
 
       const lines = input.fileContent.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      if (lines.length === 0) throw new Error("Arquivo Vazio");
+      if (lines.length === 0) throw new Error("O arquivo tá vazio, Bruno!");
 
-      // 1. Criar Sessão
+      // 1. Cria o registro da sessão
       const [session] = await db.insert(quoteSessions).values({
         name: input.sessionName,
         startDate: input.startDate,
@@ -123,7 +125,7 @@ export const cotaRouter = router({
       const itemsToInsert: any[] = [];
       const processedCodes = new Set<string>();
 
-      // 2. Adicionar Itens do Arquivo (Venda Real)
+      // 2. Processa as linhas do arquivo (vendas reais do período)
       for (const line of lines) {
         if (!line.startsWith('2;')) continue;
         const fields = line.split(';');
@@ -145,9 +147,7 @@ export const cotaRouter = router({
         });
       }
 
-      // 3. RECUPERAÇÃO DE RUPTURA (Regra Smart):
-      // Buscar produtos que estão em falta (isMissing=true) mas filtrando o ÚLTIMO status de cada.
-      // Se um item já foi incluído hoje (venda > 0), não duplicamos.
+      // 3. REGRA DE RUPTURA: Se faltou na última vez, a gente traz de volta pra cotação
       const missingItems = await db.execute(sql`
         SELECT DISTINCT ON ("productCode") "productCode", "userConfirmedQuantity"
         FROM quote_items
@@ -176,6 +176,7 @@ export const cotaRouter = router({
       return { success: true, sessionId: session.id };
     }),
 
+  // Atualiza a quantidade que eu conferi antes de exportar
   updateQuoteItemQuantity: publicProcedure
     .input(z.object({ itemId: z.number(), newQuantity: z.number() }))
     .mutation(async ({ input }) => {
@@ -185,14 +186,13 @@ export const cotaRouter = router({
       await db.update(quoteItems)
         .set({ 
           userConfirmedQuantity: input.newQuantity,
-          // Se for uma ferramenta de conferência, atualizamos chegado
-          // Mas aqui é a revisão de cotação
         })
         .where(eq(quoteItems.id, input.itemId));
 
       return { success: true };
     }),
 
+  // Quando o pedido chega, eu marco quanto de fato veio na caixa
   updateQuoteItemArrivedQuantity: publicProcedure
     .input(z.object({ itemId: z.number(), arrivedQuantity: z.number() }))
     .mutation(async ({ input }) => {
@@ -200,7 +200,7 @@ export const cotaRouter = router({
       if (!db) throw new Error("Offline");
 
       const item = await db.select().from(quoteItems).where(eq(quoteItems.id, input.itemId));
-      if (!item[0]) throw new Error("Item não encontrado");
+      if (!item[0]) throw new Error("Ih, não achei esse item");
 
       const confirmed = item[0].userConfirmedQuantity || item[0].suggestedQuantity;
       const isMissing = confirmed > input.arrivedQuantity;
@@ -215,6 +215,7 @@ export const cotaRouter = router({
       return { success: true };
     }),
 
+  // Puxa o resumo da sessão pra eu dar uma última olhada
   getQuoteSessionReview: publicProcedure
     .input(z.object({ sessionId: z.number() }))
     .query(async ({ input }) => {
@@ -222,7 +223,7 @@ export const cotaRouter = router({
       if (!db) throw new Error("Offline");
 
       const session = await db.select().from(quoteSessions).where(eq(quoteSessions.id, input.sessionId));
-      if (!session[0]) throw new Error("Sessão não encontrada");
+      if (!session[0]) throw new Error("Essa sessão sumiu!");
 
       const items = await db.select({
         item: quoteItems,
@@ -237,6 +238,7 @@ export const cotaRouter = router({
       return { session: session[0], items };
     }),
 
+  // Gera o arquivo prontinho pra eu jogar no Cotefácil
   generateCotefacilExport: publicProcedure
     .input(z.object({ sessionId: z.number(), headerCnpj: z.string().default('39455875000113') }))
     .mutation(async ({ input }) => {
@@ -272,6 +274,7 @@ export const cotaRouter = router({
       return { txtFileContent: txtOutput };
     }),
 
+  // Processa o XML da nota fiscal pra bater com o que a gente pediu
   processNfeXml: publicProcedure
     .input(z.object({ sessionId: z.number(), xmlContent: z.string() }))
     .mutation(async ({ input }) => {
@@ -321,8 +324,7 @@ export const cotaRouter = router({
          }
       }
 
-      // ⚠️ LOGICA DE RUPTURA AUTOMÁTICA (Planilha Técnica):
-      // Marcar como 'Faltou no XML' (Zero Chegada) tudo que foi pedido mas não estava na nota fiscal.
+      // REGRA DE OURO: Tudo que eu pedi e não veio na nota, eu marco como falta (zero na chegada)
       if (input.sessionId > 0) {
          await db.update(quoteItems)
             .set({ arrivedQuantity: 0, isMissing: true })
@@ -335,6 +337,7 @@ export const cotaRouter = router({
       return { success: true, matchedCount };
     }),
 
+  // Puxa o resumo de tudo que faltou nas últimas cotações
   getRuptureSummary: publicProcedure
     .query(async () => {
       try {
@@ -356,18 +359,21 @@ export const cotaRouter = router({
         .where(eq(quoteItems.isMissing, true))
         .orderBy(desc(quoteSessions.createdAt));
       } catch (error) {
-        console.error("Erro ao buscar resumo de rupturas (verifique se a coluna isMissing existe):", error);
-        return []; // Retorna vazio em caso de erro de schema
+        // Se der ruim no banco, eu aviso aqui no log silencioso
+        if (process.env.NODE_ENV !== 'production') {
+           console.error("Erro no resumo de rupturas:", error);
+        }
+        return [];
       }
     }),
 
+  // Lista os produtos e mostra se estão em falta no momento
   getProductsWithRuptureStatus: publicProcedure
     .input(z.object({ search: z.string().optional() }))
     .query(async ({ input }) => {
        const db = await getDb();
        if (!db) throw new Error("Offline");
 
-       // 1. Busca os produtos com limite e busca textual simples
        const productsList = await db.select({
           code: products.code,
           name: products.name,
@@ -381,7 +387,6 @@ export const cotaRouter = router({
 
        if (productsList.length === 0) return [];
 
-       // 2. Busca a última flag de isMissing para esses produtos específicos (Evita Window Functions complexas do Drizzle)
        const productCodes = productsList.map(p => p.code);
        const missingStatuses = await db.select({
           productCode: quoteItems.productCode,
@@ -391,7 +396,6 @@ export const cotaRouter = router({
        .where(inArray(quoteItems.productCode, productCodes))
        .orderBy(desc(quoteItems.id));
 
-       // 3. Monta o mapa de status usando a abordagem Latest-Win (o primeiro encontrado na ordenação descendente)
        const statusMap = new Map();
        for (const item of missingStatuses) {
           if (!statusMap.has(item.productCode)) {
@@ -399,14 +403,13 @@ export const cotaRouter = router({
           }
        }
 
-       // 4. Retorna a lista unificada com resiliência
        return productsList.map(p => ({
           ...p,
           isMissing: statusMap.get(p.code) || false
        }));
     }),
 
-  // Registrar uma Venda Perdida (Ruptura Manual no Balcão)
+  // Registro quando alguém pede um remédio no balcão e não tem (ruptura manual)
   logManualRupture: publicProcedure
     .input(z.object({ ean: z.string() }))
     .mutation(async ({ input }) => {
@@ -414,7 +417,7 @@ export const cotaRouter = router({
        if (!db) throw new Error("Offline");
 
        const product = await db.select().from(products).where(eq(products.ean, input.ean));
-       if (!product[0]) throw new Error("Produto não cadastrado no catálogo.");
+       if (!product[0]) throw new Error("Esse produto nem tá no nosso catálogo ainda.");
 
        const existing = await db.select().from(manualRuptures).where(and(
          eq(manualRuptures.productCode, product[0].code),
@@ -440,12 +443,12 @@ export const cotaRouter = router({
        return { success: true, productName: product[0].name };
     }),
 
-  // Aprender com o ajuste do usuário
+  // Aqui a IA aprende comigo: se eu mudei a quantidade, guardo pra sugerir melhor depois
   learnFromUserAdjustment: publicProcedure
     .input(z.object({ productCode: z.string(), suggested: z.number(), confirmed: z.number() }))
     .mutation(async ({ input }) => {
        const db = await getDb();
-       if (!db) throw new Error("Offline");
+       if (!db) throw new Error("Sem banco");
 
        if (input.suggested === 0 || input.confirmed === 0) return { success: false };
 
