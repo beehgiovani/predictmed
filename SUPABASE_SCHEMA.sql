@@ -129,3 +129,16 @@ CREATE TABLE IF NOT EXISTS public.product_adjustments (
   constraint product_adjustments_pkey primary key (id),
   constraint product_adjustments_productcode_key unique (productcode)
 ) TABLESPACE pg_default;
+
+-- 🔹 9. Lista Negra de Produtos (Banimento Permanente)
+CREATE TABLE IF NOT EXISTS public.product_blacklist (
+  id serial not null,
+  productcode character varying(64) not null,
+  productname text null,
+  reason text null,
+  createdat timestamp without time zone not null default now(),
+  constraint product_blacklist_pkey primary key (id),
+  constraint product_blacklist_productcode_key unique (productcode)
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.product_blacklist IS 'Produtos banidos das sugestões de IA - Criado por solicitação de Bruno em 2026-03-29';

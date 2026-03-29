@@ -74,7 +74,7 @@ export const quoteItems = pgTable("quote_items", {
   productCode: varchar("productcode", { length: 64 }).notNull(),
   salesInPeriod: integer("salesinperiod").default(0),
   suggestedQuantity: integer("suggestedquantity").notNull(), // O que a IA sugeriu
-  userConfirmedQuantity: integer("userconfirmedquantity"), // O que o Bruno confirmou de fato
+  userConfirmedQuantity: integer("userconfirmedquantity"), // O que o confirmou de fato
   priceAtTime: numeric("priceattime", { precision: 10, scale: 2 }),
   arrivedQuantity: integer("arrivedquantity"),
   isMissing: boolean("ismissing").default(false), // Marcar se o produto tá em falta
@@ -102,6 +102,15 @@ export const productAdjustments = pgTable("product_adjustments", {
   updatedAt: timestamp("updatedat").defaultNow().notNull(),
 });
 
+// 8. Lista Negra - Produtos que o Bruno não quer que a IA sugira NUNCA mais (ex: perfumaria externa)
+export const productBlacklist = pgTable("product_blacklist", {
+  id: serial("id").primaryKey(),
+  productCode: varchar("productcode", { length: 64 }).notNull().unique(),
+  productName: text("productname"),
+  reason: text("reason"),
+  createdAt: timestamp("createdat").defaultNow().notNull(),
+});
+
 // Export Type Inferences
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -112,3 +121,6 @@ export type QuoteSession = typeof quoteSessions.$inferSelect;
 export type InsertQuoteSession = typeof quoteSessions.$inferInsert;
 export type QuoteItem = typeof quoteItems.$inferSelect;
 export type InsertQuoteItem = typeof quoteItems.$inferInsert;
+
+export type BlacklistedProduct = typeof productBlacklist.$inferSelect;
+export type InsertBlacklistedProduct = typeof productBlacklist.$inferInsert;

@@ -60,6 +60,15 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: `${getBaseUrl()}/trpc`, 
       transformer: superjson,
+      headers() {
+        const headers: Record<string, string> = {};
+        const apiKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        if (apiKey) {
+          headers['apikey'] = apiKey;
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        return headers;
+      },
       fetch(input, init) {
         return globalThis.fetch(input, {
           ...(init ?? {}),

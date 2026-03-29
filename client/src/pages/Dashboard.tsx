@@ -9,11 +9,12 @@ import CotacaoSection from "@/components/CotacaoSection";
 import ReportsSection from "@/components/ReportsSection";
 import BulkUploadQueue from "@/components/BulkUploadQueue";
 import ConferenciaSection from "@/components/ConferenciaSection";
+import BlacklistManager from "@/components/BlacklistManager";
 import SyncPhotosTool from "@/components/SyncPhotosTool";
 import ManualRuptureEntry from "@/components/ManualRuptureEntry";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { LogOut, LayoutDashboard, FileText, ClipboardList, Package, Zap, BarChart3, ShieldAlert, AlertCircle, CheckCircle2, Upload, TrendingUp, Database } from "lucide-react";
+import { LogOut, LayoutDashboard, FileText, ClipboardList, Package, Zap, BarChart3, ShieldAlert, AlertCircle, CheckCircle2, Upload, TrendingUp, Database, ShieldX } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function Dashboard() {
@@ -116,6 +117,14 @@ export default function Dashboard() {
                 {tab.label}
               </button>
             ))}
+            <button
+              onClick={() => setActiveTab("blacklist")}
+              data-state={activeTab === "blacklist" ? "active" : "inactive"}
+              className="nav-tab-trigger group text-rose-500"
+            >
+              <ShieldX className={`w-5 h-5 shrink-0 transition-transform duration-500 ${activeTab === "blacklist" ? 'scale-110' : 'group-hover:scale-110'}`} />
+              Lista Negra (Banidos)
+            </button>
           </div>
         </div>
       </nav>
@@ -145,22 +154,12 @@ export default function Dashboard() {
 
         {/* 📦 ABA CONFERÊNCIA: Conferência de Pedidos vs XML */}
         <TabsContent value="conferencia" className="space-y-4">
-          <Card className="p-12 text-center space-y-6 border-2 border-dashed border-muted-foreground/20 text-balance animate-in zoom-in-95 duration-500">
-            <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto shadow-sm border border-green-100">
-              <Upload className="w-10 h-10 text-green-600" />
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-3xl font-black text-slate-800 tracking-tight">Conferência Inteligente</h3>
-              <p className="max-w-md mx-auto text-muted-foreground font-medium leading-relaxed">
-                Compare o que você pediu com a nota (XML) do fornecedor. Se faltar algo, eu já aviso a IA pra sugerir de novo na próxima compra.
-              </p>
-            </div>
-            <div className="flex justify-center gap-4">
-               <Badge variant="secondary" className="px-6 py-2 text-sm font-bold uppercase tracking-wider bg-slate-100 text-slate-500 border-none">
-                  Afinando os detalhes desse módulo...
-               </Badge>
-            </div>
-          </Card>
+          <ConferenciaSection />
+        </TabsContent>
+
+        {/* 🚫 ABA LISTA NEGRA */}
+        <TabsContent value="blacklist" className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <BlacklistManager />
         </TabsContent>
 
         {/* ⚙️ ABA CONFIGURAÇÕES E CATÁLOGO */}

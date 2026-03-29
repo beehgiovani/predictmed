@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, Save, CheckCircle, FileText, PlusCircle, AlertCircle, Zap, Info } from "lucide-react";
+import { Upload, Save, CheckCircle, FileText, PlusCircle, AlertCircle, Zap, Info, Trash2, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -26,6 +26,8 @@ export default function CotacaoSection() {
   const generateExportMutation = trpc.cota.generateCotefacilExport.useMutation();
   const updateQuantityMutation = trpc.cota.updateQuoteItemQuantity.useMutation();
   const learnMutation = trpc.cota.learnFromUserAdjustment.useMutation();
+  const deleteItemMutation = trpc.cota.deleteQuoteItem.useMutation();
+  const addToBlacklistMutation = trpc.cota.addToBlacklist.useMutation();
 
   // Puxar itens se houver sessão ativa
   const { data: sessionData, refetch } = trpc.cota.getQuoteSessionReview.useQuery(
@@ -104,6 +106,30 @@ export default function CotacaoSection() {
     
     refetch(); // Recarrega a UI
   };
+  
+  const handleDeleteItem = async (itemId: number, productName: string) => {
+    if (!confirm(`Tem certeza que quer tirar "${productName}" dessa lista?`)) return;
+    
+    try {
+      await deleteItemMutation.mutateAsync({ itemId });
+      toast.success("Item removido!");
+      refetch();
+    } catch (e) {
+      toast.error("Erro ao remover o item.");
+    }
+  };
+
+  const handleBlacklist = async (productCode: string, productName: string) => {
+    if (!confirm(`BANIR PERMANENTE: Quer que a IA nunca mais sugira "${productName}" (ex: perfumaria)?`)) return;
+    
+    try {
+      await addToBlacklistMutation.mutateAsync({ productCode, productName });
+      toast.success("Produto banido das próximas sugestões!");
+      refetch();
+    } catch (e) {
+      toast.error("Erro ao banir o produto.");
+    }
+  };
 
   if (activeSessionId && sessionData) {
     return (
@@ -128,8 +154,9 @@ export default function CotacaoSection() {
                   <th className="predictive-th">Produto</th>
                   <th className="predictive-th">Preço Atual</th>
                   <th className="predictive-th text-center">Vendas no Período</th>
-                  <th className="predictive-th text-center text-blue-600">Sugestão da IA</th>
+                   <th className="predictive-th text-center text-blue-600">Sugestão da IA</th>
                   <th className="predictive-th text-center text-green-700">Quanto vou pedir?</th>
+                  <th className="predictive-th text-center">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -205,6 +232,41 @@ export default function CotacaoSection() {
                           value={row.item.userConfirmedQuantity ?? row.item.suggestedQuantity}
                           onChange={(e) => updateItemQty(row.item.id, row.item.productCode, row.item.suggestedQuantity, parseInt(e.target.value) || 0)}
                         />
+                      </td>
+                      <td className="predictive-td text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-9 w-9 p-0 text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-all rounded-xl"
+                                  onClick={() => handleDeleteItem(row.item.id, row.productName || "este produto")}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Tirar apenas agora</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-9 w-9 p-0 text-slate-300 hover:text-slate-900 hover:bg-slate-100 transition-all rounded-xl"
+                                  onClick={() => handleBlacklist(row.item.productCode, row.productName || "este produto")}
+                                >
+                                  <Ban className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent className="bg-slate-900 text-white border-none">Banir para Sempre (Lista Negra)</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
                       </td>
                     </tr>
                   ))

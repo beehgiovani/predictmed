@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc.ts";
 import { getDb } from "./db.ts";
-import { quoteSessions, quoteItems, salesHistory, products, manualRuptures, productAdjustments } from "../drizzle/schema.ts";
+import { quoteSessions, quoteItems, salesHistory, products, manualRuptures, productAdjustments, productBlacklist } from "../drizzle/schema.ts";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
 import { getSmartAISuggestion } from "./lib/gemini.ts";
 
@@ -122,6 +122,10 @@ export const cotaRouter = router({
         status: 'revisao'
       }).returning();
 
+      // 0. Pega a lista negra pra não sugerir esses produtos
+      const blacklist = await db.select({ code: productBlacklist.productCode }).from(productBlacklist);
+      const blacklistedCodes = new Set(blacklist.map(b => b.code));
+
       const itemsToInsert: any[] = [];
       const processedCodes = new Set<string>();
 
@@ -131,7 +135,9 @@ export const cotaRouter = router({
         const fields = line.split(';');
         const code = fields[3]?.trim();
         const quantityStr = fields[2]?.trim();
-        if (!code || processedCodes.has(code)) continue;
+        
+        // Pula se já processei, se não tem código ou se está na LISTA NEGRA
+        if (!code || processedCodes.has(code) || blacklistedCodes.has(code)) continue;
 
         processedCodes.add(code);
         const aiResponse = await calculateSmartSuggestion(db, code, input.targetDays);
@@ -477,6 +483,59 @@ export const cotaRouter = router({
           });
        }
 
+       return { success: true };
+    }),
+
+  // Remove um item da cotação (ex: perfumaria ou algo que não quer pedir agora)
+  deleteQuoteItem: publicProcedure
+    .input(z.object({ itemId: z.number() }))
+    .mutation(async ({ input }) => {
+       const db = await getDb();
+       if (!db) throw new Error("Offline");
+
+       await db.delete(quoteItems).where(eq(quoteItems.id, input.itemId));
+
+       return { success: true };
+    }),
+
+  // Pega todos os produtos banidos
+  getBlacklist: publicProcedure
+    .query(async () => {
+       const db = await getDb();
+       if (!db) return [];
+       return await db.select().from(productBlacklist).orderBy(desc(productBlacklist.createdAt));
+    }),
+
+  // Banir um produto para sempre
+  addToBlacklist: publicProcedure
+    .input(z.object({ productCode: z.string(), productName: z.string().optional(), reason: z.string().optional() }))
+    .mutation(async ({ input }) => {
+       const db = await getDb();
+       if (!db) throw new Error("Offline");
+
+       await db.insert(productBlacklist).values({
+          productCode: input.productCode,
+          productName: input.productName,
+          reason: input.reason || 'Excluído permanentemente pelo usuário'
+       }).onConflictDoUpdate({
+          target: productBlacklist.productCode,
+          set: { productName: input.productName, reason: input.reason }
+       });
+
+       // Remove da cotação atual se existir
+       await db.delete(quoteItems).where(eq(quoteItems.productCode, input.productCode));
+
+       return { success: true };
+    }),
+
+  // Tirar da lista negra
+  removeFromBlacklist: publicProcedure
+    .input(z.object({ productCode: z.string() }))
+    .mutation(async ({ input }) => {
+       const db = await getDb();
+       if (!db) throw new Error("Offline");
+
+       await db.delete(productBlacklist).where(eq(productBlacklist.productCode, input.productCode));
        return { success: true };
     }),
 });
