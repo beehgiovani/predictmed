@@ -1,108 +1,83 @@
-import { boolean, date, integer, numeric, pgEnum, pgTable, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, integer, numeric, pgEnum, pgTable, serial, text, timestamp, varchar, unique } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
 
 export const roleEnum = pgEnum("role", ["user", "admin"]);
 
-// 1. Tabela de Usuários - pra gente saber quem tá acessando o sistema
+// 1. Tabela de Usuários
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  openId: varchar("openid", { length: 64 }).notNull().unique(), // ID único que vem do provedor de login
+  openId: varchar("openid", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginmethod", { length: 64 }),
-  role: roleEnum("role").default("user").notNull(), // Define se é usuário comum ou admin
+  role: roleEnum("role").default("user").notNull(),
   createdAt: timestamp("createdat").defaultNow().notNull(),
   updatedAt: timestamp("updatedat").defaultNow().notNull(),
   lastSignedIn: timestamp("lastsignedin").defaultNow().notNull(),
 });
 
-// 2. Nosso catálogo de produtos oficial, alimentado pelo COTAC ou XMLs
+// 2. Catálogo de Produtos
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
-  ean: varchar("ean", { length: 64 }), // Código de barras
-  code: varchar("code", { length: 64 }).notNull().unique(), // Código interno do sistema da farmácia
+  ean: varchar("ean", { length: 64 }),
+  code: varchar("code", { length: 64 }).notNull().unique(),
   name: text("name").notNull(),
   price: numeric("price", { precision: 10, scale: 2 }),
   manufacturer: varchar("manufacturer", { length: 255 }),
-  isPerfumery: boolean("isperfumery").default(false).notNull(), // Filtro pra ignorar perfumaria se quiser
-  isControlled: boolean("iscontrolled").default(false).notNull(), // Medicamentos de controle especial
+  isPerfumery: boolean("isperfumery").default(false).notNull(),
+  isControlled: boolean("iscontrolled").default(false).notNull(),
   isHighTurnover: boolean("ishighturnover").default(false).notNull(), 
   isDiscontinued: boolean("isdiscontinued").default(false).notNull(), 
   imageUrl: text("imageurl"), 
   lastImageSync: timestamp("lastimagesync"), 
+  mainCategory: text("main_category").default("medicamento"),
+  subCategory: text("sub_category"),
+  expectedStock: integer("expected_stock"),
+  stockLastUpdated: timestamp("stock_last_updated"),
   createdAt: timestamp("createdat").defaultNow().notNull(),
 });
 
-// 3. Aqui guardamos todo o histórico de vendas pra IA entender o movimento
+// 3. Histórico de Vendas
 export const salesHistory = pgTable("sales_history", {
   id: serial("id").primaryKey(),
   productCode: varchar("productcode", { length: 64 }).notNull(),
   quantity: integer("quantity").notNull(),
-  startDate: timestamp("startdate").notNull(), // Início do período da venda
-  endDate: timestamp("enddate").notNull(), // Fim do período
-  source: varchar("source", { length: 32 }).notNull(), // De onde veio esse dado (ex: manual, xml)
+  startDate: timestamp("startdate").notNull(),
+  endDate: timestamp("enddate").notNull(),
+  source: varchar("source", { length: 32 }).notNull(),
   createdAt: timestamp("createdat").defaultNow().notNull(),
-});
+}, (t) => ({
+  unq: unique("sales_history_unq_period").on(t.productCode, t.startDate, t.endDate)
+}));
 
-// 4. Sugestões de compra que a IA gera
-export const purchaseSuggestions = pgTable("purchase_suggestions", {
-  id: serial("id").primaryKey(),
-  productCode: varchar("productcode", { length: 64 }).notNull(),
-  qty1Day: integer("qty1day"),
-  qty2Days: integer("qty2day"),
-  qty3Days: integer("qty3day"),
-  qty5Days: integer("qty5day"),
-  confidence: numeric("confidence", { precision: 5, scale: 2 }), // Grau de certeza da sugestão
-  calculatedAt: timestamp("calculatedat").defaultNow().notNull(),
-});
-
-// 5. Sessões de Cotação - agrupam os itens que o Bruno tá cotando no momento
+// 5. Sessões de Cotação
 export const quoteSessions = pgTable("quote_sessions", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
-  startDate: date("startdate").notNull(),
-  endDate: date("enddate").notNull(),
-  targetDays: integer("targetdays").notNull(), // Pra quantos dias a gente quer estoque?
+  startDate: timestamp("start_date").notNull(), 
+  endDate: timestamp("end_date").notNull(),     
+  targetDays: integer("target_days").notNull(), 
   status: varchar("status", { length: 64 }).default('revisao').notNull(),
-  createdAt: timestamp("createdat").defaultNow().notNull(),
-  updatedAt: timestamp("updatedat").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Itens individuais dentro de cada cotação
 export const quoteItems = pgTable("quote_items", {
   id: serial("id").primaryKey(),
-  quoteSessionId: integer("quotesessionid").references(() => quoteSessions.id, { onDelete: 'cascade' }).notNull(),
-  productCode: varchar("productcode", { length: 64 }).notNull(),
-  salesInPeriod: integer("salesinperiod").default(0),
-  suggestedQuantity: integer("suggestedquantity").notNull(), // O que a IA sugeriu
-  userConfirmedQuantity: integer("userconfirmedquantity"), // O que o confirmou de fato
-  priceAtTime: numeric("priceattime", { precision: 10, scale: 2 }),
-  arrivedQuantity: integer("arrivedquantity"),
-  isMissing: boolean("ismissing").default(false), // Marcar se o produto tá em falta
-  aiReasoning: text("aireasoning"), // O "porquê" da IA ter sugerido essa quantidade
-  createdAt: timestamp("createdat").defaultNow().notNull(),
+  quoteSessionId: integer("quote_session_id").references(() => quoteSessions.id, { onDelete: 'cascade' }).notNull(),
+  productCode: varchar("product_code", { length: 64 }).notNull(),
+  salesInPeriod: integer("sales_in_period").default(0),
+  suggestedQuantity: integer("suggested_quantity").notNull(),
+  userConfirmedQuantity: integer("user_confirmed_quantity"),
+  shelfQuantity: integer("shelf_quantity"),
+  priceAtTime: numeric("price_at_time", { precision: 10, scale: 2 }),
+  arrivedQuantity: integer("arrived_quantity"),
+  isMissing: boolean("is_missing").default(false),
+  aiReasoning: text("ai_reasoning"),
 });
 
-// 6. Registro de quando falta produto no balcão e o vendedor avisa
-export const manualRuptures = pgTable("manual_ruptures", {
-  id: serial("id").primaryKey(),
-  productCode: varchar("productcode", { length: 64 }).notNull(),
-  ean: varchar("ean", { length: 64 }),
-  askedCount: integer("askedcount").default(1).notNull(), // Quantas vezes pediram esse item?
-  lastAskedAt: timestamp("lastaskedat").defaultNow().notNull(),
-  status: varchar("status", { length: 32 }).default('pending').notNull(),
-});
-
-// 7. Ajustes que a gente faz pra IA aprender com o nosso jeito
-export const productAdjustments = pgTable("product_adjustments", {
-  id: serial("id").primaryKey(),
-  productCode: varchar("productcode", { length: 64 }).notNull().unique(),
-  averageAdjustmentPercent: numeric("avg_adjustment", { precision: 5, scale: 2 }).default("1.00"), // Minha margem de segurança
-  lastUserQty: integer("last_user_qty"),
-  totalOverrides: integer("total_overrides").default(0),
-  updatedAt: timestamp("updatedat").defaultNow().notNull(),
-});
-
-// 8. Lista Negra - Produtos que o Bruno não quer que a IA sugira NUNCA mais (ex: perfumaria externa)
+// 8. Lista Negra
 export const productBlacklist = pgTable("product_blacklist", {
   id: serial("id").primaryKey(),
   productCode: varchar("productcode", { length: 64 }).notNull().unique(),
@@ -111,16 +86,76 @@ export const productBlacklist = pgTable("product_blacklist", {
   createdAt: timestamp("createdat").defaultNow().notNull(),
 });
 
-// Export Type Inferences
+/**
+ * 👥 CRM - CADASTRO DE CLIENTES & ENDEREÇOS (v4.0)
+ */
+
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const customerAddresses = pgTable("customer_addresses", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").references(() => customers.id, { onDelete: 'cascade' }).notNull(),
+  addressText: text("address_text").notNull(),
+  isMain: boolean("is_main").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Registro de quando falta produto no balcão e encomendas
+export const manualRuptures = pgTable("manual_ruptures", {
+  id: serial("id").primaryKey(),
+  productCode: varchar("productcode", { length: 64 }).notNull(),
+  ean: varchar("ean", { length: 64 }),
+  askedCount: integer("askedcount").default(1).notNull(), 
+  customerName: text("customername"), 
+  customerId: integer("customer_id").references(() => customers.id), 
+  contact: text("contact"), 
+  isPaid: boolean("ispaid").default(false), 
+  isSpecialOrder: boolean("isspecialorder").default(false), 
+  lastAskedAt: timestamp("lastaskedat").defaultNow().notNull(),
+  status: varchar("status", { length: 32 }).default('pending').notNull(),
+});
+
+/**
+ * 🔗 RELAÇÕES INTELIGENTES (v4.0)
+ */
+
+export const customerRelations = relations(customers, ({ many }) => ({
+   addresses: many(customerAddresses),
+   ruptures: many(manualRuptures),
+}));
+
+export const customerAddressRelations = relations(customerAddresses, ({ one }) => ({
+   customer: one(customers, { fields: [customerAddresses.customerId], references: [customers.id] }),
+}));
+
+export const manualRuptureRelations = relations(manualRuptures, ({ one }) => ({
+   customer: one(customers, { fields: [manualRuptures.customerId], references: [customers.id] }),
+   product: one(products, { fields: [manualRuptures.productCode], references: [products.code] }),
+}));
+
+export const quoteItemsRelations = relations(quoteItems, ({ one }) => ({
+  product: one(products, { fields: [quoteItems.productCode], references: [products.code] }),
+  session: one(quoteSessions, { fields: [quoteItems.quoteSessionId], references: [quoteSessions.id] }),
+}));
+
+// 7. Ajustes do Bruno
+export const productAdjustments = pgTable("product_adjustments", {
+  id: serial("id").primaryKey(),
+  productCode: varchar("productcode", { length: 64 }).notNull().unique(),
+  averageAdjustmentPercent: numeric("avg_adjustment", { precision: 5, scale: 2 }).default("1.00"),
+  lastUserQty: integer("last_user_qty"),
+  totalOverrides: integer("total_overrides").default(0),
+  updatedAt: timestamp("updatedat").defaultNow().notNull(),
+});
+
+// Tipos
 export type User = typeof users.$inferSelect;
-export type InsertUser = typeof users.$inferInsert;
 export type Product = typeof products.$inferSelect;
-export type InsertProduct = typeof products.$inferInsert;
-
-export type QuoteSession = typeof quoteSessions.$inferSelect;
-export type InsertQuoteSession = typeof quoteSessions.$inferInsert;
-export type QuoteItem = typeof quoteItems.$inferSelect;
-export type InsertQuoteItem = typeof quoteItems.$inferInsert;
-
-export type BlacklistedProduct = typeof productBlacklist.$inferSelect;
-export type InsertBlacklistedProduct = typeof productBlacklist.$inferInsert;
+export type Customer = typeof customers.$inferSelect;
+export type CustomerAddress = typeof customerAddresses.$inferSelect;
+export type ManualRupture = typeof manualRuptures.$inferSelect;

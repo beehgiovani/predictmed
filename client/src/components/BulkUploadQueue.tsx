@@ -17,6 +17,11 @@ interface QueuedFile {
   message?: string;
 }
 
+const formatLocalDate = (date: Date): string => {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 export default function BulkUploadQueue() {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -24,23 +29,40 @@ export default function BulkUploadQueue() {
   const uploadSalesMutation = trpc.data.uploadSales.useMutation();
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    if (files.length === 0) return;
+    const rawFiles = Array.from(event.target.files || []);
+    if (rawFiles.length === 0) return;
 
-    const newEntries: QueuedFile[] = files.map((file) => {
-      let defaultEnd = new Date().toISOString().slice(0, 16);
+    // Ordena os arquivos pelo nome (DDMMYYYY) para garantir a ordem cronológica na fila
+    const sortedFiles = rawFiles.sort((a, b) => {
+      const getComparableDate = (name: string) => {
+        const m = name.match(/(\d{8})/);
+        if (!m) return "";
+        const d = m[1];
+        // Retorna YYYYMMDD para ordenação correta
+        return `${d.substring(4, 8)}${d.substring(2, 4)}${d.substring(0, 2)}`;
+      };
+      return getComparableDate(a.name).localeCompare(getComparableDate(b.name));
+    });
+
+    const newEntries: QueuedFile[] = sortedFiles.map((file) => {
+      let defaultStart = formatLocalDate(new Date());
       const match = file.name.match(/(\d{8})/);
       if (match) {
         const d = match[1];
-        defaultEnd = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}T18:00`;
+        // d is DDMMYYYY -> Formata para YYYY-MM-DD
+        // O nome do arquivo agora representa o INÍCIO do período
+        defaultStart = `${d.substring(4, 8)}-${d.substring(2, 4)}-${d.substring(0, 2)}T18:00`;
       }
       
-      const startDate = new Date(new Date(defaultEnd).getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+      const startDateObj = new Date(defaultStart);
+      // Período de 24h: Começa às 18:00 do dia do arquivo, termina 18:00 do dia seguinte.
+      const endDateObj = new Date(startDateObj.getTime() + 24 * 60 * 60 * 1000);
+      const endDate = formatLocalDate(endDateObj);
 
       return {
         file,
-        startDate: startDate,
-        endDate: defaultEnd,
+        startDate: defaultStart,
+        endDate: endDate,
         status: "idle",
       };
     });
@@ -60,8 +82,8 @@ export default function BulkUploadQueue() {
       currentStart = new Date(currentStart.getTime() + 24 * 60 * 60 * 1000);
       currentEnd = new Date(currentEnd.getTime() + 24 * 60 * 60 * 1000);
       
-      newQueue[i].startDate = currentStart.toISOString().slice(0, 16);
-      newQueue[i].endDate = currentEnd.toISOString().slice(0, 16);
+      newQueue[i].startDate = formatLocalDate(currentStart);
+      newQueue[i].endDate = formatLocalDate(currentEnd);
     }
     
     setQueue(newQueue);

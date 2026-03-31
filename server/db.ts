@@ -1,10 +1,11 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import * as schema from "../drizzle/schema.ts";
 import { InsertUser, users } from "../drizzle/schema.ts";
 import { ENV } from './_core/env.ts';
 
-let _db: ReturnType<typeof drizzle> | null = null;
+let _db: any = null;
 let _client: ReturnType<typeof postgres> | null = null;
 
 // Inicializa o Drizzle só quando precisar, pra não travar tudo se o banco estiver fora.
@@ -17,7 +18,7 @@ export async function getDb() {
         idle_timeout: 20,
         connect_timeout: 10,
       });
-      _db = drizzle(_client);
+      _db = drizzle(_client, { schema });
       
       // Log de conexão (só pra avisar que subiu certinho)
       if (!ENV.isProduction) {

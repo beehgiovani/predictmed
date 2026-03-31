@@ -55,3 +55,15 @@
 .premium-main-content {
   @apply w-full min-h-[calc(100vh-200px)] mx-auto px-4 md:px-8 pb-20 animate-in fade-in slide-in-from-bottom-6 duration-700;
 }
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.nav-tab-trigger {
+  @apply min-w-[100px] md:min-w-fit flex items-center justify-center gap-1.5 md:gap-2 px-3 py-2 md:px-6 md:py-3 font-black text-[10px] md:text-sm uppercase tracking-wider transition-all duration-500 whitespace-nowrap rounded-full;
+}

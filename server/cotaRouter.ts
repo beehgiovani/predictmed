@@ -2,540 +2,404 @@ import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc.ts";
 import { getDb } from "./db.ts";
 import { quoteSessions, quoteItems, salesHistory, products, manualRuptures, productAdjustments, productBlacklist } from "../drizzle/schema.ts";
-import { eq, desc, and, sql, inArray } from "drizzle-orm";
-import { getSmartAISuggestion } from "./lib/gemini.ts";
+import { eq, desc, and, sql, inArray, or, ilike } from "drizzle-orm";
 
-// Essa é a função principal que faz a mágica da IA: junta o cálculo matemático, 
-// o jeito que eu gosto de comprar e as vendas que a gente perdeu no balcão.
-async function calculateSmartSuggestion(db: any, productCode: string, targetDays: number) {
-  // 1. Base Matemática: Calcula quanto o produto gira por dia
-  const history = await db.select({
-    qty: salesHistory.quantity,
-    start: salesHistory.startDate,
-    end: salesHistory.endDate,
-  }).from(salesHistory).where(eq(salesHistory.productCode, productCode));
-  
-  let totalDailyTurnover = 0;
-  let totalDaysCounted = 0;
-  for (const record of history) {
-    const durationMs = new Date(record.end).getTime() - new Date(record.start).getTime();
-    const durationDays = Math.max(durationMs / (1000 * 60 * 60 * 24), 0.04);
-    totalDailyTurnover += record.qty / durationDays;
-    totalDaysCounted++;
-  }
-  const avgGiro = totalDaysCounted > 0 ? (totalDailyTurnover / totalDaysCounted) : 0;
-
-  // 2. Aprendizado: Vê se eu costumo pedir mais ou menos que a IA sugere
-  const pref = await db.select().from(productAdjustments).where(eq(productAdjustments.productCode, productCode));
-  const adjFactor = pref[0] ? parseFloat(pref[0].averageAdjustmentPercent) : 1.2; // Se não tiver ajuste, coloco 20% de margem por padrão
-
-  // 3. Venda Perdida: Verifica se alguém pediu esse produto e não tinha (ruptura manual)
-  const lost = await db.select().from(manualRuptures).where(and(
-    eq(manualRuptures.productCode, productCode),
-    eq(manualRuptures.status, 'pending')
-  ));
-  const lostCount = lost[0] ? lost[0].askedCount : 0;
-
-  // 4. Pega os detalhes do produto pra IA saber com o que tá lidando
-  const prod = await db.select().from(products).where(eq(products.code, productCode));
-  const productName = prod[0]?.name || "Produto Desconhecido";
-
-  // 5. Manda tudo pro "cérebro" da aplicação (Gemini) gerar a sugestão final
-  const aiResult = await getSmartAISuggestion({
-    productName,
-    productCode,
-    targetDays,
-    salesSummary: `${history.length} períodos de venda registrados`,
-    avgDailyTurnover: avgGiro,
-    userAdjustmentFactor: adjFactor,
-    lostSalesCount: lostCount,
-    isCurrentlyMissing: false 
-  });
-
-  return aiResult;
-}
+/**
+ * --------------------------------------------------------------------------
+ * PredictMed Cota Router - Cérebro das Compras (VERSÃO FINAL v8.1)
+ * --------------------------------------------------------------------------
+ */
 
 export const cotaRouter = router({
-  // Pega todas as sessões de cotação pra mostrar na lista
   getQuoteSessions: publicProcedure
     .query(async () => {
       const db = await getDb();
-      if (!db) throw new Error("Ops, o banco tá offline!");
+      if (!db) throw new Error("Offline");
       return await db.select().from(quoteSessions).orderBy(desc(quoteSessions.createdAt));
     }),
 
-  // Puxa os itens de uma sessão específica (usado na revisão e conferência)
-  getQuoteItems: publicProcedure
-    .input(z.object({ sessionId: z.number() }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("Sem conexão com o banco");
-
-      const items = await db.select({
-        id: quoteItems.id,
-        quoteSessionId: quoteItems.quoteSessionId,
-        productCode: quoteItems.productCode,
-        salesInPeriod: quoteItems.salesInPeriod,
-        suggestedQuantity: quoteItems.suggestedQuantity,
-        userConfirmedQuantity: quoteItems.userConfirmedQuantity,
-        arrivedQuantity: quoteItems.arrivedQuantity,
-        isMissing: quoteItems.isMissing,
-        priceAtTime: quoteItems.priceAtTime,
-        aiReasoning: sql`'Análise baseada no giro e estoque.'` as any, 
-        product: {
-          name: products.name,
-          imageUrl: products.imageUrl,
-          ean: products.ean
-        }
-      })
-      .from(quoteItems)
-      .leftJoin(products, eq(quoteItems.productCode, products.code))
-      .where(eq(quoteItems.quoteSessionId, input.sessionId));
-
-      return items;
-    }),
-
-  // Cria uma cotação nova a partir do arquivo TXT que eu subo
-  createSessionFromTxt: publicProcedure
-    .input(
-      z.object({
-        fileContent: z.string(),
-        sessionName: z.string(),
-        startDate: z.string(), 
-        endDate: z.string(),   
-        targetDays: z.number().default(3),
-      })
-    )
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("Ih, o banco de dados não conectou");
-
-      const lines = input.fileContent.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      if (lines.length === 0) throw new Error("O arquivo tá vazio, Bruno!");
-
-      // 1. Cria o registro da sessão
-      const [session] = await db.insert(quoteSessions).values({
-        name: input.sessionName,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        targetDays: input.targetDays,
-        status: 'revisao'
-      }).returning();
-
-      // 0. Pega a lista negra pra não sugerir esses produtos
-      const blacklist = await db.select({ code: productBlacklist.productCode }).from(productBlacklist);
-      const blacklistedCodes = new Set(blacklist.map(b => b.code));
-
-      const itemsToInsert: any[] = [];
-      const processedCodes = new Set<string>();
-
-      // 2. Processa as linhas do arquivo (vendas reais do período)
-      for (const line of lines) {
-        if (!line.startsWith('2;')) continue;
-        const fields = line.split(';');
-        const code = fields[3]?.trim();
-        const quantityStr = fields[2]?.trim();
-        
-        // Pula se já processei, se não tem código ou se está na LISTA NEGRA
-        if (!code || processedCodes.has(code) || blacklistedCodes.has(code)) continue;
-
-        processedCodes.add(code);
-        const aiResponse = await calculateSmartSuggestion(db, code, input.targetDays);
-
-        itemsToInsert.push({
-          quoteSessionId: session.id,
-          productCode: code,
-          salesInPeriod: parseInt(quantityStr) || 0,
-          suggestedQuantity: aiResponse.suggestedQuantity,
-          userConfirmedQuantity: aiResponse.suggestedQuantity,
-          isMissing: false,
-          aiReasoning: aiResponse.reasoning
-        });
-      }
-
-      // 3. REGRA DE RUPTURA: Se faltou na última vez, a gente traz de volta pra cotação
-      const missingItems = await db.execute(sql`
-        SELECT DISTINCT ON ("productCode") "productCode", "userConfirmedQuantity"
-        FROM quote_items
-        WHERE "isMissing" = true
-        ORDER BY "productCode", id DESC
-      `);
-
-      for (const missing of (missingItems as any)) {
-        if (!processedCodes.has(missing.productCode)) {
-           itemsToInsert.push({
-             quoteSessionId: session.id,
-             productCode: missing.productCode,
-             salesInPeriod: 0,
-             suggestedQuantity: missing.userConfirmedQuantity || 1,
-             userConfirmedQuantity: missing.userConfirmedQuantity || 1,
-             isMissing: true 
-           });
-           processedCodes.add(missing.productCode);
-        }
-      }
-
-      if (itemsToInsert.length > 0) {
-        await db.insert(quoteItems).values(itemsToInsert);
-      }
-
-      return { success: true, sessionId: session.id };
-    }),
-
-  // Atualiza a quantidade que eu conferi antes de exportar
-  updateQuoteItemQuantity: publicProcedure
-    .input(z.object({ itemId: z.number(), newQuantity: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("Offline");
-
-      await db.update(quoteItems)
-        .set({ 
-          userConfirmedQuantity: input.newQuantity,
-        })
-        .where(eq(quoteItems.id, input.itemId));
-
-      return { success: true };
-    }),
-
-  // Quando o pedido chega, eu marco quanto de fato veio na caixa
-  updateQuoteItemArrivedQuantity: publicProcedure
-    .input(z.object({ itemId: z.number(), arrivedQuantity: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("Offline");
-
-      const item = await db.select().from(quoteItems).where(eq(quoteItems.id, input.itemId));
-      if (!item[0]) throw new Error("Ih, não achei esse item");
-
-      const confirmed = item[0].userConfirmedQuantity || item[0].suggestedQuantity;
-      const isMissing = confirmed > input.arrivedQuantity;
-
-      await db.update(quoteItems)
-        .set({ 
-           arrivedQuantity: input.arrivedQuantity,
-           isMissing: isMissing
-        })
-        .where(eq(quoteItems.id, input.itemId));
-
-      return { success: true };
-    }),
-
-  // Puxa o resumo da sessão pra eu dar uma última olhada
   getQuoteSessionReview: publicProcedure
-    .input(z.object({ sessionId: z.number() }))
+    .input(z.object({ sessionId: z.number(), page: z.number().default(1), limit: z.number().default(50) }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Offline");
-
-      const session = await db.select().from(quoteSessions).where(eq(quoteSessions.id, input.sessionId));
-      if (!session[0]) throw new Error("Essa sessão sumiu!");
-
-      const items = await db.select({
-        item: quoteItems,
-        productName: products.name,
-        imageUrl: products.imageUrl,
-        ean: products.ean
-      })
-      .from(quoteItems)
-      .leftJoin(products, eq(quoteItems.productCode, products.code))
-      .where(eq(quoteItems.quoteSessionId, input.sessionId));
-
-      return { session: session[0], items };
+      const sessionRes = await db.select().from(quoteSessions).where(eq(quoteSessions.id, input.sessionId));
+      if (!sessionRes[0]) throw new Error("Sessão não encontrada.");
+      const countRes = await db.select({ count: sql`count(*)` }).from(quoteItems).where(eq(quoteItems.quoteSessionId, input.sessionId));
+      const totalCount = Number(countRes[0]?.count || 0);
+      const items = await db.select({ item: quoteItems, product: products })
+        .from(quoteItems).leftJoin(products, eq(quoteItems.productCode, products.code))
+        .where(eq(quoteItems.quoteSessionId, input.sessionId)).limit(input.limit).offset((input.page - 1) * input.limit).orderBy(desc(quoteItems.id));
+      return { 
+        session: sessionRes[0], items,
+        pagination: { totalCount, totalPages: Math.ceil(totalCount / input.limit), currentPage: input.page }
+      };
     }),
 
-  // Gera o arquivo prontinho pra eu jogar no Cotefácil
-  generateCotefacilExport: publicProcedure
-    .input(z.object({ sessionId: z.number(), headerCnpj: z.string().default('39455875000113') }))
-    .mutation(async ({ input }) => {
+  getQuoteItems: publicProcedure
+    .input(z.object({ sessionId: z.number(), page: z.number().default(1), limit: z.number().default(50) }))
+    .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Offline");
-
-      const items = await db.select({
-        item: quoteItems,
-        productName: products.name,
-        ean: products.ean
-      })
-      .from(quoteItems)
-      .leftJoin(products, eq(quoteItems.productCode, products.code))
-      .where(eq(quoteItems.quoteSessionId, input.sessionId));
-
-      let txtOutput = `1;${input.headerCnpj};3.0\n`;
-
-      items.forEach((row) => {
-        const ean = row.ean || '';
-        const qty = row.item.userConfirmedQuantity ?? row.item.suggestedQuantity;
-        const cod = row.item.productCode;
-        const nome = row.productName || 'PRODUTO';
-        const empty = '';
-        const price = row.item.priceAtTime || '0.00';
-
-        txtOutput += `2;${ean};${qty};${cod};${nome};${empty};${price}\n`;
+      const countRes = await db.select({ count: sql`count(*)` }).from(quoteItems).where(eq(quoteItems.quoteSessionId, input.sessionId));
+      const totalCount = Number(countRes[0]?.count || 0);
+      const items = await db.query.quoteItems.findMany({
+        where: eq(quoteItems.quoteSessionId, input.sessionId), with: { product: true },
+        limit: input.limit, offset: (input.page - 1) * input.limit, orderBy: desc(quoteItems.id)
       });
-
-      await db.update(quoteSessions)
-        .set({ status: 'exportado_cotefacil' })
-        .where(eq(quoteSessions.id, input.sessionId));
-
-      return { txtFileContent: txtOutput };
+      return { items, pagination: { totalCount, totalPages: Math.ceil(totalCount / input.limit), currentPage: input.page } };
     }),
 
-  // Processa o XML da nota fiscal pra bater com o que a gente pediu
+  createSessionFromTxt: publicProcedure
+    .input(z.object({ fileContent: z.string(), sessionName: z.string(), startDate: z.string(), endDate: z.string(), targetDays: z.number().default(3) }))
+    .mutation(async ({ input }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("Offline");
+        const lines = input.fileContent.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const [session] = await db.insert(quoteSessions).values({ name: input.sessionName, startDate: new Date(input.startDate), endDate: new Date(input.endDate), targetDays: input.targetDays, status: 'revisao' }).returning();
+        
+        const [blacklist, discontinued] = await Promise.all([
+          db.select({ code: productBlacklist.productCode }).from(productBlacklist),
+          db.select({ code: products.code }).from(products).where(eq(products.isDiscontinued, true))
+        ]);
+        const ignoredSet = new Set([...blacklist.map((b: any) => b.code), ...discontinued.map((d: any) => d.code)]);
+        const codesInFile = new Set<string>(); const fileRows: any[] = [];
+        const reportDays = Math.max((new Date(input.endDate).getTime() - new Date(input.startDate).getTime()) / 86400000, 1);
+        
+        for (const line of lines) {
+          if (!line.startsWith('2;')) continue;
+          const f = line.split(';'); const code = f[3]?.trim();
+          if (!code || codesInFile.has(code) || ignoredSet.has(code)) continue;
+          codesInFile.add(code); fileRows.push({ code, name: f[4]?.trim() || "PR", ean: f[1]?.trim() || null, salesInPeriod: parseInt(f[2]) || 0, price: f[6] || "0.00" });
+        }
+        const codesArr = Array.from(codesInFile);
+        if (codesArr.length === 0) return { success: true, sessionId: session.id };
+        
+        const productInserts = fileRows.map(r => ({ code: r.code, name: r.name || 'Produto Não Identificado', ean: r.ean || "", price: r.price || "0" }));
+        for (let i = 0; i < productInserts.length; i += 1000) {
+            await db.insert(products).values(productInserts.slice(i, i + 1000)).onConflictDoNothing();
+        }
+        
+        const historyToInsert = fileRows.map(row => ({ productCode: row.code, quantity: row.salesInPeriod, startDate: new Date(input.startDate), endDate: new Date(input.endDate), source: 'relatorio_diario' }));
+        const insertedHistory = await db.insert(salesHistory).values(historyToInsert).onConflictDoNothing().returning();
+        
+        const updatesProds = insertedHistory.map((hist: any) => db.update(products)
+           .set({ expectedStock: sql`expected_stock - ${hist.quantity}` })
+           .where(and(eq(products.code, hist.productCode), sql`expected_stock IS NOT NULL`)));
+           
+        for (let i = 0; i < updatesProds.length; i += 200) {
+           await Promise.all(updatesProds.slice(i, i + 200));
+        }
+        
+        const [allHist, adjs, allRupts, prods] = await Promise.all([
+          db.select().from(salesHistory).where(inArray(salesHistory.productCode, codesArr)),
+          db.select().from(productAdjustments).where(inArray(productAdjustments.productCode, codesArr)),
+          db.select().from(manualRuptures).where(eq(manualRuptures.status, 'pending')),
+          db.select().from(products).where(inArray(products.code, codesArr))
+        ]);
+        
+        const hMap = new Map(); allHist.forEach((h: any) => { const l = hMap.get(h.productCode) || []; l.push(h); hMap.set(h.productCode, l); });
+        const aMap = new Map(); adjs.forEach((a: any) => aMap.set(a.productCode, parseFloat(a.averageAdjustmentPercent || "1.20")));
+        const pMap = new Map(); prods.forEach((p: any) => pMap.set(p.code, p.expectedStock));
+        
+        const rMap = new Map();
+        const sOrders = (allRupts as any[]).filter(r => r.isSpecialOrder);
+        (allRupts as any[]).filter(r => !r.isSpecialOrder).forEach((r: any) => rMap.set(r.productCode, (rMap.get(r.productCode) || 0) + r.askedCount));
+
+        const itemsToInsert: any[] = [];
+        const handledCodesInReview = new Set<string>();
+
+        // Lógica Sazonal Automática: Sexta = 4 dias, resto = 1.
+        const endDateObj = new Date(input.endDate);
+        const currentMonth = endDateObj.getMonth() + 1;
+        const currentDay = endDateObj.getDate();
+        let autoTargetDays = endDateObj.getDay() === 5 ? 4 : 1; 
+        let holidayTag = '';
+        if (currentMonth === 1 && currentDay >= 13 && currentDay <= 15) { autoTargetDays++; holidayTag = ' (+ S.Amaro Guarujá)'; }
+        if (currentMonth === 9 && currentDay >= 1 && currentDay <= 3) { autoTargetDays++; holidayTag = ' (+ Emanc. Guarujá)'; }
+        if (currentMonth === 12 && currentDay >= 24) { autoTargetDays++; holidayTag = ' (+ Natal/AnoNovo)'; }
+
+        // Salvamos no banco o targetDays calculado, pra sobrescrever o default da interface
+        await db.update(quoteSessions).set({ targetDays: autoTargetDays }).where(eq(quoteSessions.id, session.id));
+
+        for (const row of fileRows) {
+          const history = hMap.get(row.code) || []; const adj = aMap.get(row.code) || 1.2; 
+          const lostInput = rMap.get(row.code) || 0;
+          const specials = sOrders.filter((s: any) => s.productCode === row.code);
+          const expStock = pMap.get(row.code);
+          
+          let totalTurn = 0, totalDaysCount = 0;
+          history.forEach((h: any) => {
+            const d = Math.max((new Date(h.endDate).getTime() - new Date(h.startDate).getTime()) / 86400000, 0.1);
+            totalTurn += h.quantity / d; totalDaysCount++;
+          });
+          const giro = totalDaysCount > 0 ? (totalTurn / totalDaysCount) : (row.salesInPeriod / reportDays);
+          
+          let baseSuggestion = Math.ceil((giro * autoTargetDays * adj) + lostInput + (specials.length));
+          
+          if (expStock !== undefined && expStock !== null) {
+              baseSuggestion = Math.max(baseSuggestion - expStock, 0); 
+          } else {
+              baseSuggestion = Math.max(baseSuggestion, 1); // fallback clássico
+          }
+          
+          let reasoning = specials.length > 0 ? `ENCOMENDA VIP` : `Giro (${autoTargetDays}d)${holidayTag}`;
+          if (expStock !== undefined && expStock !== null) reasoning += ` | -${expStock} Estq`;
+          
+          itemsToInsert.push({ quoteSessionId: session.id, productCode: row.code, salesInPeriod: row.salesInPeriod, suggestedQuantity: baseSuggestion, userConfirmedQuantity: baseSuggestion, priceAtTime: row.price, isMissing: false, aiReasoning: reasoning, shelfQuantity: expStock });
+          handledCodesInReview.add(row.code);
+        }
+
+        for (const s of (sOrders as any[])) {
+          if (!handledCodesInReview.has(s.productCode)) {
+             itemsToInsert.push({ 
+               quoteSessionId: session.id, productCode: s.productCode, salesInPeriod: 0, 
+               suggestedQuantity: s.askedCount || 1, userConfirmedQuantity: s.askedCount || 1, 
+               priceAtTime: "0.00", isMissing: false, 
+               aiReasoning: `ENCOMENDA: ${s.customerName || 'Cliente VIP'}` 
+             });
+             handledCodesInReview.add(s.productCode);
+          }
+        }
+
+        for (let i = 0; i < itemsToInsert.length; i += 1000) await db.insert(quoteItems).values(itemsToInsert.slice(i, i + 1000));
+        return { success: true, sessionId: session.id };
+      } catch (err: any) {
+        console.error("Falha Crítica ao processar Cotac TXT:", err);
+        throw new Error(`Erro no motor de cotação: ${err.message}`);
+      }
+    }),
+
   processNfeXml: publicProcedure
     .input(z.object({ sessionId: z.number(), xmlContent: z.string() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("Offline");
-
-      const regex = new RegExp('<det\\s+nItem="(\\d+)">.*?<prod>.*?<cProd>(.*?)<\\/cProd>.*?<cEAN>(.*?)<\\/cEAN>.*?<xProd>(.*?)<\\/xProd>.*?<qCom>(.*?)<\\/qCom>.*?<\\/prod>', 'gs');
-      
-      let matchedIds = new Set<number>();
-      let matchedCount = 0;
-      let match;
+      const db = await getDb(); if (!db) throw new Error("Offline!");
+      const regex = /<det\s+nItem="\d+">[\s\S]*?<prod>[\s\S]*?<cProd>(.*?)<\/cProd>[\s\S]*?<cEAN>(.*?)<\/cEAN>[\s\S]*?<xProd>(.*?)<\/xProd>[\s\S]*?<qCom>(.*?)<\/qCom>/g;
+      let match, count = 0, matchIds: number[] = [];
+      const prodUpdates: any[] = [];
       while ((match = regex.exec(input.xmlContent)) !== null) {
-         const [_, nItem, cProd, cEAN, xProd, qCom] = match;
-         const quantity = parseFloat(qCom);
-         
-         if (!cEAN || isNaN(quantity)) continue;
-
-         const productRecord = await db.select().from(products).where(eq(products.ean, cEAN));
-         
-         if (productRecord[0]) {
-            const code = productRecord[0].code;
-            const arrivedQty = Math.floor(quantity);
-
-            const sessionItems = await db.select().from(quoteItems).where(and(
-               eq(quoteItems.quoteSessionId, input.sessionId),
-               eq(quoteItems.productCode, code)
-            ));
-
-            if (sessionItems[0]) {
-               const confirmed = sessionItems[0].userConfirmedQuantity || sessionItems[0].suggestedQuantity;
-               await db.update(quoteItems)
-                  .set({ 
-                     arrivedQuantity: arrivedQty,
-                     isMissing: confirmed > arrivedQty
-                  })
-                  .where(eq(quoteItems.id, sessionItems[0].id));
-               
-               matchedIds.add(sessionItems[0].id);
-               matchedCount++;
-            }
-         } else {
-            await db.insert(products).values({
-               code: cProd,
-               ean: cEAN,
-               name: xProd,
-            }).onConflictDoNothing();
-         }
-      }
-
-      // REGRA DE OURO: Tudo que eu pedi e não veio na nota, eu marco como falta (zero na chegada)
-      if (input.sessionId > 0) {
-         await db.update(quoteItems)
-            .set({ arrivedQuantity: 0, isMissing: true })
-            .where(and(
-               eq(quoteItems.quoteSessionId, input.sessionId),
-               sql`id NOT IN (${sql.join(Array.from(matchedIds).length > 0 ? Array.from(matchedIds) : [0], ', ')})` as any
-            ));
-      }
-
-      return { success: true, matchedCount };
-    }),
-
-  // Puxa o resumo de tudo que faltou nas últimas cotações
-  getRuptureSummary: publicProcedure
-    .query(async () => {
-      try {
-        const db = await getDb();
-        if (!db) return [];
-
-        return await db.select({
-           id: quoteItems.id,
-           productCode: quoteItems.productCode,
-           productName: products.name,
-           confirmed: quoteItems.userConfirmedQuantity,
-           arrived: quoteItems.arrivedQuantity,
-           session: quoteSessions.name,
-           date: quoteSessions.createdAt
-        })
-        .from(quoteItems)
-        .leftJoin(products, eq(quoteItems.productCode, products.code))
-        .leftJoin(quoteSessions, eq(quoteItems.quoteSessionId, quoteSessions.id))
-        .where(eq(quoteItems.isMissing, true))
-        .orderBy(desc(quoteSessions.createdAt));
-      } catch (error) {
-        // Se der ruim no banco, eu aviso aqui no log silencioso
-        if (process.env.NODE_ENV !== 'production') {
-           console.error("Erro no resumo de rupturas:", error);
-        }
-        return [];
-      }
-    }),
-
-  // Lista os produtos e mostra se estão em falta no momento
-  getProductsWithRuptureStatus: publicProcedure
-    .input(z.object({ search: z.string().optional() }))
-    .query(async ({ input }) => {
-       const db = await getDb();
-       if (!db) throw new Error("Offline");
-
-       const productsList = await db.select({
-          code: products.code,
-          name: products.name,
-          ean: products.ean,
-          price: products.price,
-          imageUrl: products.imageUrl,
-       })
-       .from(products)
-       .where(input.search ? sql`LOWER(${products.name}) LIKE ${'%' + input.search.toLowerCase() + '%'}` : undefined)
-       .limit(100);
-
-       if (productsList.length === 0) return [];
-
-       const productCodes = productsList.map(p => p.code);
-       const missingStatuses = await db.select({
-          productCode: quoteItems.productCode,
-          isMissing: quoteItems.isMissing,
-       })
-       .from(quoteItems)
-       .where(inArray(quoteItems.productCode, productCodes))
-       .orderBy(desc(quoteItems.id));
-
-       const statusMap = new Map();
-       for (const item of missingStatuses) {
-          if (!statusMap.has(item.productCode)) {
-             statusMap.set(item.productCode, item.isMissing);
+        const [_, cProd, cEAN, xProd, qCom] = match; const qty = Math.floor(parseFloat(qCom));
+        const [prodRec] = await db.select().from(products).where(eq(products.ean, cEAN));
+        if (prodRec) {
+          const [sItem] = await db.select().from(quoteItems).where(and(eq(quoteItems.quoteSessionId, input.sessionId), eq(quoteItems.productCode, prodRec.code)));
+          if (sItem) {
+             await db.update(quoteItems).set({ arrivedQuantity: qty, isMissing: (sItem.userConfirmedQuantity || sItem.suggestedQuantity) > qty }).where(eq(quoteItems.id, sItem.id));
+             matchIds.push(sItem.id); count++;
+             prodUpdates.push(db.update(products).set({ expectedStock: sql`expected_stock + ${qty}` }).where(and(eq(products.code, prodRec.code), sql`expected_stock IS NOT NULL`)));
           }
-       }
+        }
+      }
+      
+      for(let i=0; i < prodUpdates.length; i+=200) await Promise.all(prodUpdates.slice(i, i+200));
 
-       return productsList.map(p => ({
-          ...p,
-          isMissing: statusMap.get(p.code) || false
-       }));
+      if (input.sessionId > 0 && matchIds.length > 0) {
+        await db.update(quoteItems).set({ arrivedQuantity: 0, isMissing: true }).where(and(eq(quoteItems.quoteSessionId, input.sessionId), sql`id NOT IN (${sql.join(matchIds, ', ')})` as any));
+      }
+      return { success: true, matchedCount: count };
     }),
 
-  // Registro quando alguém pede um remédio no balcão e não tem (ruptura manual)
-  logManualRupture: publicProcedure
-    .input(z.object({ ean: z.string() }))
+  updateQuoteItemArrivedQuantity: publicProcedure
+    .input(z.object({ itemId: z.number(), arrivedQuantity: z.number() }))
     .mutation(async ({ input }) => {
-       const db = await getDb();
-       if (!db) throw new Error("Offline");
-
-       const product = await db.select().from(products).where(eq(products.ean, input.ean));
-       if (!product[0]) throw new Error("Esse produto nem tá no nosso catálogo ainda.");
-
-       const existing = await db.select().from(manualRuptures).where(and(
-         eq(manualRuptures.productCode, product[0].code),
-         eq(manualRuptures.status, 'pending')
-       ));
-
-       if (existing[0]) {
-          await db.update(manualRuptures)
-            .set({ 
-              askedCount: existing[0].askedCount + 1,
-              lastAskedAt: new Date()
-            })
-            .where(eq(manualRuptures.id, existing[0].id));
-       } else {
-          await db.insert(manualRuptures).values({
-            productCode: product[0].code,
-            ean: input.ean,
-            askedCount: 1,
-            status: 'pending'
-          });
-       }
-
-       return { success: true, productName: product[0].name };
+       const db = await getDb(); if (!db) throw new Error("Offline!");
+       const [item] = await db.select().from(quoteItems).where(eq(quoteItems.id, input.itemId));
+       if (!item) throw new Error("Item não encontrado!");
+       const target = item.userConfirmedQuantity || item.suggestedQuantity;
+       return await db.update(quoteItems).set({ arrivedQuantity: input.arrivedQuantity, isMissing: target > input.arrivedQuantity }).where(eq(quoteItems.id, input.itemId)).returning();
     }),
 
-  // Aqui a IA aprende comigo: se eu mudei a quantidade, guardo pra sugerir melhor depois
-  learnFromUserAdjustment: publicProcedure
-    .input(z.object({ productCode: z.string(), suggested: z.number(), confirmed: z.number() }))
-    .mutation(async ({ input }) => {
-       const db = await getDb();
-       if (!db) throw new Error("Sem banco");
+  getProductsWithRuptureStatus: publicProcedure
+    .input(z.object({ search: z.string().optional(), page: z.number().default(1), limit: z.number().default(50), showDiscontinued: z.boolean().default(false) }))
+    .query(async ({ input }) => {
+      const db = await getDb(); if (!db) throw new Error("Offline");
+      const offset = (input.page - 1) * input.limit;
+      const conditions = [input.showDiscontinued ? eq(products.isDiscontinued, true) : eq(products.isDiscontinued, false)];
+      if (input.search) conditions.push(or(ilike(products.name, `%${input.search}%`), eq(products.code, input.search), eq(products.ean, input.search))!);
+      
+      const [items, totalRes] = await Promise.all([
+        db.query.products.findMany({ where: conditions.length > 0 ? and(...conditions) : undefined, limit: input.limit, offset, orderBy: [products.name] }),
+        db.select({ count: sql`count(*)` }).from(products).where(conditions.length > 0 ? and(...conditions) : undefined)
+      ]);
+      const totalCount = Number(totalRes[0]?.count || 0);
+      return { products: items, pagination: { totalCount, totalPages: Math.ceil(totalCount / input.limit), currentPage: input.page } };
+    }),
 
-       if (input.suggested === 0 || input.confirmed === 0) return { success: false };
-
-       const ratio = input.confirmed / input.suggested;
+  updateProduct: publicProcedure.input(z.object({ 
+       code: z.string(), 
+       name: z.string().optional(),
+       isControlled: z.boolean().optional(),
+       isDiscontinued: z.boolean().optional(),
+       mainCategory: z.string().optional().nullable(),
+       subCategory: z.string().optional().nullable()
+    }))
+    .mutation(async ({ input }) => { 
+       const db = await getDb(); 
+       const updates: any = {};
        
-       const existing = await db.select().from(productAdjustments).where(eq(productAdjustments.productCode, input.productCode));
+       if (input.name !== undefined) updates.name = input.name;
+       if (input.isControlled !== undefined) updates.isControlled = input.isControlled;
+       if (input.isDiscontinued !== undefined) updates.isDiscontinued = input.isDiscontinued;
+       if (input.mainCategory !== undefined) updates.mainCategory = input.mainCategory;
+       if (input.subCategory !== undefined) updates.subCategory = input.subCategory;
 
-       if (existing[0]) {
-          const currentAvg = parseFloat(existing[0].averageAdjustmentPercent ?? "1.00");
-          const totalOver = existing[0].totalOverrides ?? 0;
-          const newAvg = (currentAvg * totalOver + ratio) / (totalOver + 1);
-          await db.update(productAdjustments)
-            .set({ 
-              averageAdjustmentPercent: newAvg.toFixed(2),
-              lastUserQty: input.confirmed,
-              totalOverrides: totalOver + 1,
-              updatedAt: new Date()
-            })
-            .where(eq(productAdjustments.id, existing[0].id));
-       } else {
-          await db.insert(productAdjustments).values({
-             productCode: input.productCode,
-             averageAdjustmentPercent: ratio.toFixed(2),
-             lastUserQty: input.confirmed,
-             totalOverrides: 1
-          });
+       if (input.mainCategory === 'perfumaria') updates.isPerfumery = true;
+       if (input.mainCategory === 'medicamento') updates.isPerfumery = false;
+
+       if (input.isDiscontinued === true) {
+          await db.insert(productBlacklist).values({ productCode: input.code, productName: input.name || "Produto Banido" }).onConflictDoNothing();
+       } else if (input.isDiscontinued === false) {
+          await db.delete(productBlacklist).where(eq(productBlacklist.productCode, input.code));
        }
 
-       return { success: true };
+       return await db.update(products).set(updates).where(eq(products.code, input.code)).returning(); 
     }),
 
-  // Remove um item da cotação (ex: perfumaria ou algo que não quer pedir agora)
-  deleteQuoteItem: publicProcedure
-    .input(z.object({ itemId: z.number() }))
-    .mutation(async ({ input }) => {
-       const db = await getDb();
-       if (!db) throw new Error("Offline");
+  updateQuoteItemQuantity: publicProcedure.input(z.object({ itemId: z.number(), newQuantity: z.number() })).mutation(async ({ input }) => { const db = await getDb(); await db.update(quoteItems).set({ userConfirmedQuantity: input.newQuantity }).where(eq(quoteItems.id, input.itemId)); return { success: true }; }),
+  
+  updateQuoteItemShelfQuantity: publicProcedure.input(z.object({ itemId: z.number(), shelfQuantity: z.number().nullable() })).mutation(async ({ input }) => { 
+     const db = await getDb(); 
+     const [item] = await db.select().from(quoteItems).where(eq(quoteItems.id, input.itemId));
+     if (!item) throw new Error("Item não encontrado!");
+     const newQty = Math.max(item.suggestedQuantity - (input.shelfQuantity || 0), 0);
+     
+     await db.update(quoteItems).set({ shelfQuantity: input.shelfQuantity, userConfirmedQuantity: newQty }).where(eq(quoteItems.id, input.itemId)); 
+     
+     if (input.shelfQuantity !== null) {
+        await db.update(products).set({ expectedStock: input.shelfQuantity, stockLastUpdated: new Date() }).where(eq(products.code, item.productCode));
+     }
 
-       await db.delete(quoteItems).where(eq(quoteItems.id, input.itemId));
+     return { success: true, newQty }; 
+  }),
+  
+  deleteQuoteItem: publicProcedure.input(z.object({ itemId: z.number() })).mutation(async ({ input }) => { const db = await getDb(); await db.delete(quoteItems).where(eq(quoteItems.id, input.itemId)); return { success: true }; }),
+  
+  generateCotefacilExport: publicProcedure.input(z.object({ sessionId: z.number(), headerCnpj: z.string().default('39455875000113') })).mutation(async ({ input }) => {
+    const db = await getDb(); const items = await db.select({ item: quoteItems, name: products.name, ean: products.ean }).from(quoteItems).leftJoin(products, eq(quoteItems.productCode, products.code)).where(eq(quoteItems.quoteSessionId, input.sessionId));
+    let txt = `1;${input.headerCnpj};3.0\n`; items.forEach((r: any) => { txt += `2;${r.ean || ''};${r.item.userConfirmedQuantity ?? r.item.suggestedQuantity};${r.item.productCode};${r.name || 'PRODUTO'};;${r.item.priceAtTime || '0.01'}\n`; });
+    txt += `9;${items.length + 2}\n`;
+    await db.update(quoteSessions).set({ status: 'exportado_cotefacil' }).where(eq(quoteSessions.id, input.sessionId)); return { txtFileContent: txt };
+  }),
 
-       return { success: true };
-    }),
+  finishSessionManually: publicProcedure.input(z.object({ sessionId: z.number() })).mutation(async ({ input }) => {
+    const db = await getDb();
+    await db.update(quoteSessions).set({ status: 'fechado_manualmente' }).where(eq(quoteSessions.id, input.sessionId));
+    return { success: true };
+  }),
 
-  // Pega todos os produtos banidos
-  getBlacklist: publicProcedure
-    .query(async () => {
-       const db = await getDb();
-       if (!db) return [];
-       return await db.select().from(productBlacklist).orderBy(desc(productBlacklist.createdAt));
-    }),
+  // LISTA NEGRA
+  getBlacklist: publicProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Offline!");
+    return await db.select().from(productBlacklist).orderBy(desc(productBlacklist.createdAt));
+  }),
 
-  // Banir um produto para sempre
-  addToBlacklist: publicProcedure
-    .input(z.object({ productCode: z.string(), productName: z.string().optional(), reason: z.string().optional() }))
-    .mutation(async ({ input }) => {
-       const db = await getDb();
-       if (!db) throw new Error("Offline");
+  addToBlacklist: publicProcedure.input(z.object({ productCode: z.string(), productName: z.string().optional() })).mutation(async ({ input }) => {
+     const db = await getDb();
+     await db.insert(productBlacklist).values({ productCode: input.productCode, productName: input.productName }).onConflictDoUpdate({ target: productBlacklist.productCode, set: { productName: input.productName } });
+     await db.delete(quoteItems).where(eq(quoteItems.productCode, input.productCode)); return { success: true };
+  }),
 
-       await db.insert(productBlacklist).values({
-          productCode: input.productCode,
-          productName: input.productName,
-          reason: input.reason || 'Excluído permanentemente pelo usuário'
-       }).onConflictDoUpdate({
-          target: productBlacklist.productCode,
-          set: { productName: input.productName, reason: input.reason }
+  removeFromBlacklist: publicProcedure.input(z.object({ productCode: z.string() })).mutation(async ({ input }) => {
+     const db = await getDb();
+     await db.delete(productBlacklist).where(eq(productBlacklist.productCode, input.productCode));
+     return { success: true };
+  }),
+
+  logManualRupture: publicProcedure.input(z.object({ 
+     ean: z.string(),
+     customerId: z.number().optional(),
+     customerName: z.string().optional(),
+     contact: z.string().optional(),
+     isPaid: z.boolean().optional(),
+     isSpecialOrder: z.boolean().optional()
+  })).mutation(async ({ input }) => {
+    const db = await getDb(); const [product] = await db.select().from(products).where(eq(products.ean, input.ean));
+    if (!product) throw new Error("Produto não cadastrado.");
+    
+    if (input.isSpecialOrder) {
+       await db.insert(manualRuptures).values({ 
+          productCode: product.code, ean: input.ean, askedCount: 1, 
+          customerId: input.customerId,
+          customerName: input.customerName, contact: input.contact, 
+          isPaid: input.isPaid, isSpecialOrder: true, status: 'pending' 
        });
+    } else {
+       const existing = await db.select().from(manualRuptures).where(and(eq(manualRuptures.productCode, product.code), eq(manualRuptures.status, 'pending'), eq(manualRuptures.isSpecialOrder, false)));
+       if (existing[0]) { await db.update(manualRuptures).set({ askedCount: (existing[0].askedCount || 0) + 1, lastAskedAt: new Date() }).where(eq(manualRuptures.id, existing[0].id)); }
+       else { await db.insert(manualRuptures).values({ productCode: product.code, ean: input.ean, askedCount: 1, status: 'pending' }); }
+    }
+    return { success: true, productName: product.name };
+  }),
 
-       // Remove da cotação atual se existir
-       await db.delete(quoteItems).where(eq(quoteItems.productCode, input.productCode));
+  updateOrderStatus: publicProcedure.input(z.object({ id: z.number(), status: z.string() })).mutation(async ({ input }) => {
+     const db = await getDb();
+     await db.update(manualRuptures).set({ status: input.status }).where(eq(manualRuptures.id, input.id));
+     return { success: true };
+  }),
 
-       return { success: true };
-    }),
+  /**
+   * 📉 RESUMO DE RUPTURAS - VERSÃO DETALHADA v8.1
+   */
+  getRuptureSummary: publicProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Offline!");
+    try {
+      // 1. Busca os detalhes individuais para a lista (com Hora)
+      const list = await db.select({
+        id: manualRuptures.id,
+        productCode: manualRuptures.productCode,
+        productName: products.name,
+        lastAskedAt: manualRuptures.lastAskedAt,
+        askedCount: manualRuptures.askedCount,
+        isSpecialOrder: manualRuptures.isSpecialOrder
+      })
+      .from(manualRuptures)
+      .leftJoin(products, eq(manualRuptures.productCode, products.code))
+      .where(eq(manualRuptures.status, 'pending'))
+      .orderBy(desc(manualRuptures.lastAskedAt));
 
-  // Tirar da lista negra
-  removeFromBlacklist: publicProcedure
-    .input(z.object({ productCode: z.string() }))
-    .mutation(async ({ input }) => {
-       const db = await getDb();
-       if (!db) throw new Error("Offline");
+      // 2. Busca contagem por categoria para o gráfico
+      const stats = await db.select({
+        subCategory: products.subCategory,
+        count: sql<number>`count(*)`
+      })
+      .from(manualRuptures)
+      .leftJoin(products, eq(manualRuptures.productCode, products.code))
+      .where(eq(manualRuptures.status, 'pending'))
+      .groupBy(products.subCategory);
 
-       await db.delete(productBlacklist).where(eq(productBlacklist.productCode, input.productCode));
-       return { success: true };
-    }),
+      return { 
+        stats: stats.map((s: any) => ({ label: s.subCategory || 'Sem Categoria', value: Number(s.count) })),
+        list: list.map((l: any) => ({ ...l, timeDisplay: new Date(l.lastAskedAt).toLocaleTimeString() }))
+      };
+    } catch (e) {
+      console.error("Erro no resumo:", e);
+      return { stats: [], list: [] };
+    }
+  }),
+
+  getSpecialOrders: publicProcedure.query(async () => {
+     const db = await getDb();
+     if (!db) throw new Error("Offline!");
+     try {
+       return await db.select({
+          id: manualRuptures.id,
+          productCode: manualRuptures.productCode,
+          productName: products.name,
+          customerName: manualRuptures.customerName,
+          contact: manualRuptures.contact,
+          isPaid: manualRuptures.isPaid,
+          status: manualRuptures.status,
+          lastAskedAt: manualRuptures.lastAskedAt
+       })
+       .from(manualRuptures)
+       .leftJoin(products, eq(manualRuptures.productCode, products.code))
+       .where(eq(manualRuptures.isSpecialOrder, true))
+       .orderBy(desc(manualRuptures.lastAskedAt));
+     } catch (e) {
+       console.error("Erro ao buscar encomendas:", e);
+       return [];
+     }
+  }),
 });

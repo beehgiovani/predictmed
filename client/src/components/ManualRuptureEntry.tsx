@@ -1,256 +1,244 @@
 import React, { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
-import { Html5QrcodeScanner } from "html5-qrcode";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, CheckCircle2, Scan, Keyboard, History, Loader2, Zap, ShieldCheck } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { 
+  AlertCircle, CheckCircle2, Scan, Keyboard, History, 
+  Loader2, Zap, ShieldCheck, UserCircle2, Phone, CreditCard, ShoppingBasket,
+  Search, UserPlus, MapPin, Info, PackageCheck, Clock, Check, X, Truck
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { supabase } from "@/lib/supabase";
+
+/**
+ * --------------------------------------------------------------------------
+ * ManualRuptureEntry - FALTAS & GESTÃO REALTIME v6.0 (CONEXÃO VIVA)
+ * --------------------------------------------------------------------------
+ */
 
 export default function ManualRuptureEntry() {
   const [ean, setEan] = useState("");
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
-  const [lastScanned, setLastScanned] = useState<{ name: string; time: string } | null>(null);
+  
+  const [isSpecialOrder, setIsSpecialOrder] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
+  const [customerName, setCustomerName] = useState("");
+  const [contact, setContact] = useState("");
+  const [address, setAddress] = useState("");
+  const [isPaid, setIsPaid] = useState(false);
+  const [showCustomerSearch, setShowCustomerSearch] = useState(false);
+
+  const [activeSubTab, setActiveSubTab] = useState<'entry' | 'orders'>('entry');
+
   const inputRef = useRef<HTMLInputElement>(null);
+  const utils = trpc.useContext();
+
+  // 🛰️ RADAR REALTIME: ESCUTA MUDANÇAS NO BANCO
+  useEffect(() => {
+    const channel = supabase
+      .channel('ruptures-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'manual_ruptures' }, () => {
+         console.log("🚀 Sincronização Realtime detectada!");
+         utils.cota.getSpecialOrders.invalidate();
+         utils.cota.getRuptureSummary.invalidate();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [utils]);
+
+  const { data: searchResults } = trpc.crm.searchCustomers.useQuery({ query: customerSearch }, { enabled: customerSearch.length >= 2 });
+  const { data: ordersData, refetch: refetchOrders } = trpc.cota.getSpecialOrders.useQuery();
 
   const logMutation = trpc.cota.logManualRupture.useMutation({
-    onSuccess: (data) => {
-      setLastScanned({ name: data.productName, time: new Date().toLocaleTimeString() });
-      setEan("");
-      setStatus({ type: 'success', message: `Beleza! Registrei: ${data.productName}` });
+    onSuccess: () => {
+      resetForm();
+      setStatus({ type: 'success', message: `Pedido registrado com sucesso!` });
       setTimeout(() => setStatus(null), 3000);
       if (!isCameraActive) inputRef.current?.focus();
     },
-    onError: (err) => {
-      setStatus({ type: 'error', message: err.message });
-      setEan("");
-    },
+    onError: (err) => { setStatus({ type: 'error', message: err.message }); setEan(""); },
   });
 
-  // Auto-submit quando o EAN atinge o tamanho padrão (13 ou 14 dígitos)
-  useEffect(() => {
-    if (ean.length >= 13 && !logMutation.isPending) {
-      logMutation.mutate({ ean });
-    }
-  }, [ean]);
+  const upsertCustomerMutation = trpc.crm.upsertCustomer.useMutation();
+  const updateOrderStatus = trpc.cota.updateOrderStatus.useMutation();
 
-  // Scanner de Câmera
-  useEffect(() => {
-    let scanner: Html5QrcodeScanner | null = null;
-    if (isCameraActive) {
-      scanner = new Html5QrcodeScanner(
-        "reader",
-        { fps: 10, qrbox: { width: 300, height: 300 } },
-        /* verbose= */ false
-      );
-      scanner.render((decodedText) => {
-        setEan(decodedText);
-        setIsCameraActive(false);
-        scanner?.clear();
-      }, (err) => {
-        // Ignorar erros de scan contínuo
-      });
-    }
-    return () => {
-      if (scanner) scanner.clear();
-    };
-  }, [isCameraActive]);
+  const resetForm = () => {
+    setEan(""); setCustomerName(""); setContact(""); setAddress("");
+    setIsSpecialOrder(false); setIsPaid(false); setSelectedCustomerId(null); setCustomerSearch("");
+  };
 
-  // Sempre focar o input para leitores físicos (USB/Bluetooth)
-  useEffect(() => {
-    if (!isCameraActive) {
-      const handleFocus = () => inputRef.current?.focus();
-      window.addEventListener("click", handleFocus);
-      inputRef.current?.focus();
-      return () => window.removeEventListener("click", handleFocus);
+  const handleSubmitVIP = async () => {
+    if (ean.length < 3) return;
+    try {
+      let customerId: number | undefined = selectedCustomerId || undefined;
+      if (!customerId && customerName) {
+         const resp = await upsertCustomerMutation.mutateAsync({ name: customerName, phone: contact, address: address });
+         customerId = resp.customerId;
+      }
+      logMutation.mutate({ ean, customerId, customerName, contact, isPaid, isSpecialOrder: true });
+    } catch (e) {
+      setStatus({ type: 'error', message: "Erro ao salvar cliente." });
     }
-  }, [isCameraActive]);
+  };
+
+  const selectCustomer = (c: any) => {
+    setSelectedCustomerId(c.id); setCustomerName(c.name); setContact(c.phone || "");
+    if (c.addresses?.[0]) setAddress(c.addresses[0].addressText);
+    setCustomerSearch(""); setShowCustomerSearch(false);
+  };
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="rupture-scanner-container max-w-4xl mx-auto p-4 md:p-0"
-    >
-      <Card className="scanner-main-card overflow-hidden border-none premium-shadow-lg glassmorphism !bg-white/40 backdrop-blur-3xl rounded-[2.5rem]">
-        <header className="scanner-header relative p-10 md:p-14 overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-900 to-slate-800" />
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
-          <div className="absolute -top-24 -right-24 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl animate-pulse" />
-          
-          <div className="relative flex flex-col md:flex-row items-center justify-between gap-10">
-            <div className="scanner-title-area text-center md:text-left">
-              <motion.div 
-                animate={{ rotate: [0, -10, 10, 0] }}
-                transition={{ repeat: Infinity, duration: 5 }}
-                className="inline-flex items-center gap-4 bg-white/10 px-6 py-2 rounded-2xl backdrop-blur-md border border-white/10 mb-6"
-              >
-                <AlertCircle className="w-5 h-5 text-rose-400" />
-                <span className="text-xs font-black text-rose-100 uppercase tracking-widest leading-none">Aviso de Falta</span>
-              </motion.div>
-              <h2 className="text-4xl md:text-5xl font-black text-white tracking-tighter leading-tight">
-                Registrar Produto <br/> que Faltou
-              </h2>
-              <p className="text-slate-400 mt-6 font-semibold text-base md:text-lg max-w-md">
-                Bipe o produto que o cliente pediu e não tinha. Eu aviso a IA pra você comprar melhor.
-              </p>
-            </div>
-            
-            <div className="flex flex-col items-center md:items-end gap-6">
-
-              <div className="flex items-center gap-3 text-emerald-400 font-black text-[10px] uppercase tracking-widest bg-emerald-500/10 px-6 py-2 rounded-full border border-emerald-500/20">
-                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                 Conectado ao Banco de Dados
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <CardContent className="scanner-content-body p-10 md:p-14">
-          <div className="flex flex-col gap-12">
-            <AnimatePresence mode="wait">
-              {!isCameraActive ? (
-                <motion.div 
-                  key="manual"
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 1.05 }}
-                  className="w-full space-y-12"
-                >
-                  <div className="scanner-input-brick relative group">
-                    <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-cyan-400 rounded-3xl blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
-                    <div className="relative">
-                      <Keyboard className="absolute left-8 top-1/2 -translate-y-1/2 text-slate-400 w-8 h-8 transition-colors group-focus-within:text-blue-500" />
-                      <Input
-                        ref={inputRef}
-                        placeholder="Pode bipar agora..."
-                        value={ean}
-                        onChange={(e) => setEan(e.target.value)}
-                        className="h-24 md:h-28 pl-24 pr-10 rounded-[2rem] border-2 border-slate-100 bg-white shadow-xl text-3xl font-black text-slate-800 placeholder:text-slate-300 transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 focus-visible:ring-0"
-                        autoFocus
-                        title="Entrada de Código de Barras"
-                      />
-                      {logMutation.isPending && (
-                        <div className="absolute right-8 top-1/2 -translate-y-1/2">
-                          <Loader2 className="animate-spin text-blue-600 h-10 w-10" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <AnimatePresence>
-                    {status && (
-                      <motion.div 
-                        initial={{ opacity: 0, height: 0, y: -20 }}
-                        animate={{ opacity: 1, height: 'auto', y: 0 }}
-                        exit={{ opacity: 0, height: 0, y: 20 }}
-                        className={`p-8 rounded-[2rem] text-center text-base font-black uppercase tracking-[0.2em] shadow-lg ${status.type === 'success' ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-rose-500 text-white shadow-rose-200'}`}
-                      >
-                        {status.message}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                     <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center gap-6 group hover:bg-white transition-all hover:shadow-xl">
-                        <div className="w-14 h-14 bg-white rounded-2xl shadow-md flex items-center justify-center group-hover:bg-blue-600 transition-colors">
-                          <CheckCircle2 className="w-7 h-7 text-emerald-500 group-hover:text-white" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Aparelho</p>
-                          <p className="text-base font-black text-slate-700">Leitor de Mão Conectado</p>
-                        </div>
-                     </div>
-                     <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center gap-6 group hover:bg-white transition-all hover:shadow-xl text-balance">
-                        <div className="w-14 h-14 bg-white rounded-2xl shadow-md flex items-center justify-center group-hover:bg-blue-600 transition-colors">
-                          <ShieldCheck className="w-7 h-7 text-emerald-500 group-hover:text-white" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Sincronização</p>
-                          <p className="text-base font-black text-slate-700">Busca Inteligente Ativa</p>
-                        </div>
-                     </div>
-                  </div>
-
-                  <div className="relative flex items-center gap-10">
-                     <div className="h-px bg-slate-200 flex-1" />
-                     <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.4em]">Ou use o celular</span>
-                     <div className="h-px bg-slate-200 flex-1" />
-                  </div>
-
-                  <Button 
-                    onClick={() => setIsCameraActive(true)}
-                    className="h-20 md:h-24 rounded-[2rem] bg-slate-900 hover:bg-black text-white gap-6 px-10 text-xl font-black shadow-2xl transition-all active:scale-95 group"
-                    title="Ativar Câmera"
-                  >
-                    <Scan className="w-8 h-8 group-hover:rotate-90 transition-transform duration-500" />
-                    Usar Câmera do Celular
-                  </Button>
-                </motion.div>
-              ) : (
-                <motion.div 
-                  key="camera"
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
-                  className="w-full space-y-10"
-                >
-                  <div className="relative rounded-[3rem] overflow-hidden border-8 border-slate-900 shadow-2xl bg-black">
-                    <div id="reader" className="aspect-square md:aspect-video w-full" />
-                    <div className="absolute inset-0 border-[40px] border-white/10 pointer-events-none" />
-                    <div className="absolute top-1/2 left-0 right-0 h-1 bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.8)] animate-scan-vertical" />
-                  </div>
-                  <Button 
-                    variant="ghost" 
-                    className="w-full h-20 rounded-[2rem] text-slate-500 font-black text-lg hover:bg-slate-100 transition-all uppercase tracking-widest"
-                    onClick={() => setIsCameraActive(false)}
-                  >
-                    Voltar para o Leitor de Mão
-                  </Button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          <AnimatePresence>
-            {lastScanned && (
-              <motion.div 
-                initial={{ opacity: 0, y: 30, scale: 0.9 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                className="last-scanned-success-brick !static mt-12 overflow-hidden rounded-[2.5rem] bg-gradient-to-r from-emerald-600 to-emerald-500 p-10 md:p-14 shadow-2xl shadow-emerald-200 relative"
-              >
-                <div className="absolute -right-10 -bottom-10 w-48 h-48 bg-white/10 rounded-full blur-3xl" />
-                <Zap className="absolute top-1/2 right-20 -translate-y-1/2 w-48 h-48 text-white/5 rotate-12" />
-                
-                <div className="flex flex-col md:flex-row items-center justify-between relative z-10 gap-10 text-center md:text-left">
-                  <div className="flex flex-col md:flex-row items-center gap-10">
-                    <div className="bg-white/20 p-6 rounded-3xl backdrop-blur-xl shadow-2xl border border-white/30 text-white">
-                      <CheckCircle2 className="w-10 h-10" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-black text-emerald-100 uppercase tracking-[0.3em] mb-3">Falta registrada com sucesso!</p>
-                      <h4 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-none">{lastScanned.name}</h4>
-                    </div>
-                  </div>
-                  <div className="bg-black/10 px-8 py-4 rounded-2xl backdrop-blur-md">
-                    <p className="text-[10px] text-emerald-100 font-black uppercase tracking-widest mb-1 opacity-60">Gravado às</p>
-                    <p className="text-2xl font-black text-white">{lastScanned.time}</p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-center flex-wrap gap-12 py-10 opacity-40">
-        <div className="flex items-center gap-4 text-xs font-black text-slate-400 uppercase tracking-[0.3em]">
-           <History className="w-6 h-6" /> 
-           Eu aprendo o que falta para você comprar melhor.
-        </div>
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700">
+      
+      {/* SELETOR DE MODO SLIM */}
+      <div className="flex bg-white/80 backdrop-blur-md p-2 rounded-[2rem] shadow-sm border border-slate-100 max-w-sm mx-auto md:mx-0">
+        <Button 
+          onClick={() => setActiveSubTab('entry')}
+          className={`flex-1 h-12 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${activeSubTab === 'entry' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-transparent text-slate-400 hover:text-slate-600'}`}
+        >
+           Novo Registro
+        </Button>
+        <Button 
+          onClick={() => setActiveSubTab('orders')}
+          className={`flex-1 h-12 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${activeSubTab === 'orders' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-transparent text-slate-400 hover:text-slate-600'}`}
+        >
+           Gestão VIP Realtime
+        </Button>
       </div>
-    </motion.div>
+
+      <AnimatePresence mode="wait">
+        {activeSubTab === 'entry' ? (
+          <motion.div key="entry" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="space-y-8">
+            <Card className="rounded-[3rem] border-none shadow-2xl overflow-hidden bg-white/70 backdrop-blur-3xl">
+              <header className="p-10 md:p-14 bg-slate-900 overflow-hidden relative">
+                 <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-transparent" />
+                 <div className="relative flex items-center justify-between">
+                    <div>
+                       <h2 className="text-3xl md:text-4xl font-black text-white tracking-tighter">Balanço de Faltas</h2>
+                       <p className="text-blue-300/60 font-medium mt-2 tracking-widest text-[10px] uppercase">Conexão Viva com o Gerente</p>
+                    </div>
+                    <div className="h-4 w-4 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse" />
+                 </div>
+              </header>
+
+              <CardContent className="p-10 md:p-14 space-y-10">
+                 <div className="flex items-center justify-between p-6 bg-slate-100/30 rounded-2xl border border-slate-100">
+                    <div className="flex items-center gap-4"><UserCircle2 className="w-6 h-6 text-blue-600" /><span className="font-black text-slate-800 uppercase tracking-widest text-[10px]">É Encomenda VIP?</span></div>
+                    <Switch checked={isSpecialOrder} onCheckedChange={setIsSpecialOrder} className="data-[state=checked]:bg-blue-600" />
+                 </div>
+
+                 <AnimatePresence>
+                    {isSpecialOrder ? (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="space-y-6 overflow-hidden">
+                        <div className="relative">
+                           <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                           <Input placeholder="Buscar Cliente (Nome ou Telefone)..." value={customerSearch} onChange={e => {setCustomerSearch(e.target.value); setShowCustomerSearch(true);}} className="h-16 pl-16 rounded-2xl bg-white border-2 border-slate-100 font-bold" />
+                           {showCustomerSearch && searchResults && searchResults.length > 0 && (
+                             <Card className="absolute z-50 w-full mt-2 rounded-2xl shadow-2xl border-blue-50 p-2">
+                                {searchResults.map((c: any) => (
+                                   <button key={c.id} onClick={() => selectCustomer(c)} className="w-full p-4 text-left hover:bg-blue-50 flex items-center justify-between border-b rounded-xl last:border-b-0">
+                                      <div><p className="font-bold">{c.name}</p><p className="text-xs text-slate-400">{c.phone}</p></div>
+                                      <Badge variant="outline" className="border-emerald-200 text-emerald-600">CLIENTE VIP</Badge>
+                                   </button>
+                                ))}
+                             </Card>
+                           )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                           <Input placeholder="Nome Completo" value={customerName} onChange={e => setCustomerName(e.target.value)} className="h-14 rounded-xl border-slate-100 font-bold" />
+                           <Input placeholder="Telefone / Contato" value={contact} onChange={e => setContact(e.target.value)} className="h-14 rounded-xl border-slate-100 font-bold" />
+                        </div>
+                        <Input placeholder="Endereço para Entrega (Opcional)" value={address} onChange={e => setAddress(e.target.value)} className="h-14 rounded-xl border-slate-100 font-bold" />
+                        <div className="flex items-center justify-between p-4 px-8 bg-blue-50/50 rounded-xl border border-blue-100/50">
+                           <span className="font-black text-[10px] uppercase text-blue-900 tracking-widest">Produto já está pago?</span>
+                           <Switch checked={isPaid} onCheckedChange={setIsPaid} className="data-[state=checked]:bg-blue-600" />
+                        </div>
+                      </motion.div>
+                    ) : null}
+                 </AnimatePresence>
+
+                 <div className="relative">
+                    <Keyboard className="absolute left-6 top-1/2 -translate-y-1/2 w-8 h-8 text-slate-300" />
+                    <Input ref={inputRef} placeholder="Bipe o EAN aqui..." value={ean} onChange={e => setEan(e.target.value)} className="h-24 pl-20 rounded-[2rem] border-4 border-slate-100 text-3xl font-black text-slate-800 focus:border-blue-600 shadow-inner" autoFocus />
+                 </div>
+
+                 {isSpecialOrder && (
+                   <Button onClick={handleSubmitVIP} disabled={logMutation.isPending || ean.length < 3 || !customerName} className="w-full h-20 rounded-[2rem] bg-blue-600 text-white text-xl font-black shadow-2xl shadow-blue-500/30 hover:scale-[1.01] transition-all">
+                      {logMutation.isPending ? "ENVIANDO AO GERENTE..." : "GRAVAR ENCOMENDA VIP"}
+                   </Button>
+                 )}
+
+                 {status && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`p-6 rounded-2xl text-center font-black uppercase text-xs tracking-widest ${status.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                      {status.message}
+                    </motion.div>
+                 )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : (
+          <motion.div key="orders" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
+             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <AnimatePresence>
+                  {ordersData?.map((o: any) => (
+                    <motion.div key={o.id} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
+                      <Card className="rounded-[2.5rem] overflow-hidden border-none shadow-xl bg-white hover:shadow-2xl transition-all h-full flex flex-col">
+                         <div className={`h-3 bg-gradient-to-r ${o.status === 'delivered' ? 'from-emerald-500 to-teal-400' : o.isPaid ? 'from-blue-600 to-indigo-400' : 'from-rose-500 to-orange-400'}`} />
+                         <CardContent className="p-8 space-y-6 flex-1 flex flex-col">
+                            <div className="flex justify-between items-start">
+                               <div>
+                                  <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Cliente VIP</p>
+                                  <h4 className="font-black text-lg text-slate-800 leading-none">{o.customerName || 'Identificando...'}</h4>
+                                  <p className="text-[10px] font-bold text-blue-600 mt-1">{o.contact || 'S/ Telefone'}</p>
+                               </div>
+                               <Badge className={`rounded-xl px-4 py-1 text-[9px] font-black tracking-widest ${o.isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                  {o.isPaid ? 'PAGO' : 'ÃO PAGO'}
+                               </Badge>
+                            </div>
+
+                            <div className="p-5 bg-slate-50/80 rounded-2xl border border-slate-100 flex-1">
+                               <p className="text-[9px] font-black uppercase text-slate-400 mb-1">Produto da Encomenda</p>
+                               <p className="font-black text-slate-700 leading-tight text-sm line-clamp-3">{o.productName || 'Carregando Nome...'}</p>
+                               <p className="text-[8px] font-bold text-slate-400 uppercase mt-4">{new Date(o.lastAskedAt).toLocaleString()}</p>
+                            </div>
+
+                            <div className="pt-2">
+                               {o.status === 'pending' && (
+                                 <Button 
+                                   onClick={() => updateOrderStatus.mutate({ id: o.id, status: 'delivered' })} 
+                                   className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black text-[10px] tracking-widest hover:bg-emerald-600 transition-colors"
+                                 >
+                                    <Truck className="w-4 h-4 mr-3" /> MARCAR COMO ENTREGUE
+                                 </Button>
+                               )}
+                               {o.status === 'delivered' && (
+                                 <div className="w-full h-14 rounded-2xl bg-emerald-500/10 text-emerald-600 font-black text-[10px] tracking-widest flex items-center justify-center gap-3 border-2 border-emerald-100">
+                                    <PackageCheck className="w-6 h-6" /> ENCOMENDA FINALIZADA
+                                 </div>
+                               )}
+                            </div>
+                         </CardContent>
+                      </Card>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+             </div>
+             {(!ordersData || ordersData.length === 0) && (
+               <div className="p-32 text-center flex flex-col items-center justify-center space-y-6">
+                  <ShoppingBasket className="w-20 h-20 text-slate-100" />
+                  <p className="font-black text-slate-300 tracking-[0.2em] text-sm uppercase">Aguardando Encomendas VIP...</p>
+               </div>
+             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

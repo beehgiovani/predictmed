@@ -3,7 +3,7 @@ import { fetchRequestHandler } from "https://esm.sh/@trpc/server/adapters/fetch"
 import { appRouter } from "../../../server/routers.ts";
 import { createContext } from "../../../server/_core/context.ts";
 
-console.log("PredictMed Edge Function starting...");
+console.log("PredictMed Edge Function starting... (v8.5.3 deployed)");
 
 const allowedOrigins = [
   'https://predictmed.web.app',
@@ -78,16 +78,19 @@ Deno.serve(async (req) => {
       },
     });
 
-    // Adiciona headers de CORS na resposta do TRPC
+    // RECONSTRUIMOS A RESPOSTA PARA FORÇAR OS HEADERS REAIS (sem wildcard *)
+    const finalHeaders = new Headers(res.headers);
     Object.entries(corsHeaders).forEach(([key, value]) => {
-      res.headers.set(key, value);
+      finalHeaders.set(key, value);
     });
 
-    return res;
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: finalHeaders,
+    });
   } catch (err) {
     console.error("Function Error:", err);
-    const origin = req.headers.get('origin');
-    const corsHeaders = getCorsHeaders(origin);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

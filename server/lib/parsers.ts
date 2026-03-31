@@ -34,7 +34,6 @@ export function parseCotacContent(content: string): CotacRow[] {
       const name = fields[4]?.trim();
 
       if (!code || !name || seenCodes.has(code)) continue;
-      if (name.includes('**')) continue; // Pula itens de serviço ou mensagens do sistema
       
       seenCodes.add(code);
       const isperfumery = name.toLowerCase().includes('perfume') || name.toLowerCase().includes('shampoo');
@@ -70,7 +69,6 @@ export function parseSalesContent(content: string): SalesRow[] {
       const price = parseFloat(fields[6]?.trim() || '0');
 
       if (!code || isNaN(quantity) || quantity === 0) continue;
-      if (name?.startsWith('**')) continue;
 
       rows.push({
         code,

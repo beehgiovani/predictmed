@@ -4,6 +4,7 @@ import { systemRouter } from "./_core/systemRouter.ts";
 import { publicProcedure, router } from "./_core/trpc.ts";
 import { dataRouter } from "./dataRouter.ts";
 import { cotaRouter } from "./cotaRouter.ts";
+import { crmRouter } from "./crmRouter.ts";
 
 export const appRouter = router({
     // Se precisar usar socket.io, veja como registrar a rota em server/_core/index.ts. 
@@ -21,6 +22,7 @@ export const appRouter = router({
   }),
   data: dataRouter,
   cota: cotaRouter,
+  crm: crmRouter,
 });
 
 export type AppRouter = typeof appRouter;

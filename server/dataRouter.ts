@@ -5,22 +5,7 @@ import { products, salesHistory } from "../drizzle/schema.ts";
 import { sql } from "drizzle-orm";
 import { supabase } from "./lib/supabase.ts";
 import { parseCotacContent, parseSalesContent } from "./lib/parsers.ts";
-
-// Ajuda a buscar as fotos dos produtos automaticamente na internet usando o EAN (código de barras)
-async function fetchProductImage(ean: string | null): Promise<string | null> {
-  if (!ean || !ean.length || ean.length < 8) return null;
-  try {
-    const response = await fetch(`https://api-produtos.seunegocionanuvem.com.br/api/${ean}`);
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data.image || data.thumbnail || null;
-  } catch (e) {
-    if (process.env.NODE_ENV !== 'production') {
-       console.warn(`[Fotos] Não consegui achar a imagem pro EAN ${ean}`);
-    }
-    return null;
-  }
-}
+import { imageService } from "./lib/imageService.ts";
 
 export const dataRouter = router({
   // Isso aqui é só pra ajustar o banco de dados se eu mudar alguma tabela
@@ -106,15 +91,15 @@ export const dataRouter = router({
   uploadCotac: publicProcedure
     .input(z.object({ fileContent: z.string() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("Banco offline!");
-
       const rows = parseCotacContent(input.fileContent);
       let imported = 0;
-      const rowsToInsert: any[] = [];
+      const productsMap = new Map();
 
       for (const row of rows) {
-        rowsToInsert.push({
+        // Blindagem: Ignora se não tiver código ou nome (causa erro no banco)
+        if (!row.code || !row.name) continue;
+        
+        productsMap.set(row.code, {
           code: row.code,
           ean: row.ean,
           name: row.name,
@@ -126,17 +111,11 @@ export const dataRouter = router({
         imported++;
       }
 
-      if (rowsToInsert.length > 0) {
-        // Busca as primeiras fotos pra não demorar muito o upload
-        for (const row of rowsToInsert.slice(0, 50)) {
-           if (row.ean) {
-              row.imageUrl = await fetchProductImage(row.ean);
-           }
-        }
-
-        const chunkSize = 1000;
-        for (let i = 0; i < rowsToInsert.length; i += chunkSize) {
-          const chunk = rowsToInsert.slice(i, i + chunkSize);
+      if (productsMap.size > 0) {
+        const productsToUpsert = Array.from(productsMap.values());
+        const chunkSize = 500;
+        for (let i = 0; i < productsToUpsert.length; i += chunkSize) {
+          const chunk = productsToUpsert.slice(i, i + chunkSize);
           await supabase.from('products').upsert(chunk, { onConflict: 'code' });
         }
       }
@@ -150,20 +129,28 @@ export const dataRouter = router({
     .mutation(async ({ input }) => {
       const rows = parseSalesContent(input.fileContent);
       let imported = 0;
+      const productsMap = new Map();
       const rowsToInsert: any[] = [];
-      const productsToUpsert: any[] = [];
+      
       const start = new Date(input.startDate);
       const end = new Date(input.endDate);
 
       for (const row of rows) {
-        productsToUpsert.push({
-          code: row.code,
-          ean: row.ean,
-          name: row.name,
-          manufacturer: row.manufacturer,
-          price: row.price,
-        });
+        // Blindagem total: Filtra linhas sem dados críticos
+        if (!row.code || !row.name || !row.quantity) continue;
 
+        // Guarda o produto para o upsert (usando Map para garantir unicidade no lote)
+        if (!productsMap.has(row.code)) {
+          productsMap.set(row.code, {
+            code: row.code,
+            ean: row.ean,
+            name: row.name,
+            manufacturer: row.manufacturer,
+            price: row.price || 0,
+          });
+        }
+
+        // Prepara o registro histórico
         rowsToInsert.push({
           productcode: row.code,
           quantity: row.quantity,
@@ -174,53 +161,28 @@ export const dataRouter = router({
         imported++;
       }
 
-      if (productsToUpsert.length > 0) {
-        // Tenta buscar fotos pras novidades
-        for (const p of productsToUpsert.slice(0, 30)) {
-           p.imageUrl = await fetchProductImage(p.ean);
-        }
-
+      // 1. Primeiro salva/atualiza os produtos (para não dar erro de chave estrangeira)
+      if (productsMap.size > 0) {
+        const productsList = Array.from(productsMap.values());
         const chunkSize = 500;
-        for (let i = 0; i < productsToUpsert.length; i += chunkSize) {
-          const chunk = productsToUpsert.slice(i, i + chunkSize);
-          await supabase.from('products').upsert(chunk, { onConflict: 'code' });
+        for (let i = 0; i < productsList.length; i += chunkSize) {
+          const chunk = productsList.slice(i, i + chunkSize);
+          const { error } = await supabase.from('products').upsert(chunk, { onConflict: 'code' });
+          if (error) console.error(`[Upload] Erro no lote de produtos: ${error.message}`);
         }
       }
 
+      // 2. Agora salva o histórico de vendas
       if (rowsToInsert.length > 0) {
         const chunkSize = 1000;
         for (let i = 0; i < rowsToInsert.length; i += chunkSize) {
           const chunk = rowsToInsert.slice(i, i + chunkSize);
-          await supabase.from('sales_history').upsert(chunk);
+          const { error } = await supabase.from('sales_history').insert(chunk);
+          if (error) console.error(`[Upload] Erro no lote de vendas: ${error.message}`);
         }
       }
 
       return { success: true, message: `${imported} registros de venda salvos!`, recordsProcessed: imported };
-    }),
-
-  // Ferramenta pra varrer o catálogo e buscar fotos que estão faltando
-  syncMissingImages: publicProcedure
-    .mutation(async () => {
-       const { data, error } = await supabase
-          .from('products')
-          .select('code, ean')
-          .is('imageUrl', null)
-          .not('ean', 'is', null)
-          .limit(100);
-
-       if (error) throw error;
-       if (!data || data.length === 0) return { success: true, synced: 0 };
-
-       let synced = 0;
-       for (const item of data) {
-          const url = await fetchProductImage(item.ean);
-          if (url) {
-             await supabase.from('products').update({ imageUrl: url }).eq('code', item.code);
-             synced++;
-          }
-       }
-
-       return { success: true, synced };
     }),
 
   // Limpa os dados de teste pra deixar o sistema pronto pro dia a dia da farmácia
@@ -228,13 +190,14 @@ export const dataRouter = router({
      const db = await getDb();
      if (!db) throw new Error("Offline!");
 
-     // Limpeza Geral: Tira tudo que for de teste mas deixa o Catálogo de Produtos intacto
+     // Limpeza Geral: AGORA LIMPANDO TUDO PARA COMEÇAR DO ZERO ABSOLUTO
      await db.execute(sql`TRUNCATE TABLE quote_items CASCADE`);
      await db.execute(sql`TRUNCATE TABLE quote_sessions CASCADE`);
      await db.execute(sql`TRUNCATE TABLE sales_history CASCADE`);
      await db.execute(sql`TRUNCATE TABLE manual_ruptures CASCADE`);
      await db.execute(sql`TRUNCATE TABLE product_adjustments CASCADE`);
+     await db.execute(sql`TRUNCATE TABLE products CASCADE`); // <--- LIMPANDO PRODUTOS TAMBÉM
 
-     return { success: true, message: "Sistema limpo! Só o catálogo de produtos foi mantido." };
+     return { success: true, message: "Sistema limpo! Tudo zerado para sua carga oficial." };
   }),
 });

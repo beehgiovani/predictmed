@@ -28,7 +28,7 @@
 }
 
 .predictive-th {
-  @apply px-8 py-6 text-left text-[10px] font-black uppercase tracking-[0.2em];
+  @apply px-2 py-3 md:px-6 md:py-6 text-left text-[8px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.2em];
 }
 
 .predictive-tr {
@@ -36,7 +36,7 @@
 }
 
 .predictive-td {
-  @apply px-8 py-6;
+  @apply px-2 py-3 md:px-6 md:py-6 align-middle;
 }
 
 .ai-insight-cell {
@@ -53,7 +53,7 @@
 }
 
 .qty-confirm-input {
-  @apply w-32 h-14 text-lg font-black text-center bg-white border-2 border-slate-100 rounded-2xl focus:border-green-500 focus:ring-green-500/20 transition-all shadow-inner;
+  @apply w-16 h-10 md:w-24 md:h-12 lg:w-32 lg:h-14 text-sm md:text-lg font-black text-center bg-white border-2 border-slate-100 rounded-xl md:rounded-2xl focus:border-green-500 focus:ring-green-500/20 transition-all shadow-inner;
 }
 
 .upload-panel-grid {

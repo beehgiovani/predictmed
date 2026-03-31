@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -9,13 +9,13 @@ import CotacaoSection from "@/components/CotacaoSection";
 import ReportsSection from "@/components/ReportsSection";
 import BulkUploadQueue from "@/components/BulkUploadQueue";
 import ConferenciaSection from "@/components/ConferenciaSection";
-import BlacklistManager from "@/components/BlacklistManager";
-import SyncPhotosTool from "@/components/SyncPhotosTool";
 import ManualRuptureEntry from "@/components/ManualRuptureEntry";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { LogOut, LayoutDashboard, FileText, ClipboardList, Package, Zap, BarChart3, ShieldAlert, AlertCircle, CheckCircle2, Upload, TrendingUp, Database, ShieldX } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
 
 export default function Dashboard() {
   const [uploadHistory, setUploadHistory] = useState<Array<{
@@ -29,6 +29,29 @@ export default function Dashboard() {
   }>>([]);
   
   const [activeTab, setActiveTab] = useState("cota");
+  const utils = trpc.useContext();
+
+  // 🛰️ RADAR GLOBAL REALTIME: SINCRONIZA TUDO AO VIVO
+  useEffect(() => {
+    const channel = supabase
+      .channel('global-sync')
+      .on('postgres_changes', { event: '*', schema: 'public' }, (payload: any) => {
+         console.log("🔄 Sincronização Global:", payload.table);
+         // Atualiza apenas as queries que fazem sentido para a tabela que mudou
+         if (payload.table === 'products') utils.cota.getProductsWithRuptureStatus.invalidate();
+         if (payload.table === 'quote_items' || payload.table === 'quote_sessions') {
+            utils.cota.getQuoteSessions.invalidate();
+            utils.cota.getQuoteSessionReview.invalidate();
+         }
+         if (payload.table === 'manual_ruptures') {
+            utils.cota.getSpecialOrders.invalidate();
+            utils.cota.getRuptureSummary.invalidate();
+         }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [utils]);
 
   const handleUploadSuccess = (type: "cotac" | "pedido" | "xml", filename: string, message: string, recordsProcessed?: number) => {
     setUploadHistory((prev) => [
@@ -61,12 +84,12 @@ export default function Dashboard() {
             <motion.div 
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="flex items-center h-9 md:h-14"
+              className="flex items-center h-7 md:h-14"
             >
               <img 
                 src="/assets/logo_premium.png" 
                 alt="PredictMed Premium" 
-                className="h-full w-auto object-contain"
+                className="h-full w-auto object-contain max-w-[120px] md:max-w-none"
               />
             </motion.div>
 
@@ -96,35 +119,31 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Navegação - Menu Principal */}
-      <nav className="hidden md:block sticky top-20 z-40 bg-white/95 backdrop-blur-xl border-b border-slate-200/40 shadow-sm">
-        <div className="w-full px-6 py-3">
-          <div className="nav-tabs-list">
+      {/* Navegação - Menu Principal Slim */}
+      <nav className="sticky top-14 md:top-20 z-40 bg-white/95 backdrop-blur-xl border-b border-slate-200/40 shadow-sm overflow-x-auto no-scrollbar">
+        <div className="w-full min-w-max px-4 py-1.5 md:px-6 md:py-2">
+          <div className="flex items-center gap-2 md:gap-4 flex-nowrap">
             {[
-              { id: "dashboard", icon: LayoutDashboard, label: "Catálogo e Configurações" },
-              { id: "cota", icon: FileText, label: "Sugestão de Compras" },
-              { id: "rupture", icon: ShieldAlert, label: "Registrar Faltas" },
-              { id: "conferencia", icon: ClipboardList, label: "Conferir Mercadoria" },
-              { id: "reports", icon: BarChart3, label: "Desempenho da Loja" },
+              { id: "dashboard", icon: Package, label: "Catálogo" },
+              { id: "cota", icon: FileText, label: "Sugestão" },
+              { id: "rupture", icon: ShieldAlert, label: "Faltas / VIP" },
+              { id: "conferencia", icon: ClipboardList, label: "Conferência" },
+              { id: "reports", icon: BarChart3, label: "Desempenho" },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                data-state={activeTab === tab.id ? "active" : "inactive"}
-                className="nav-tab-trigger group"
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 md:px-6 md:py-2.5 rounded-xl md:rounded-2xl transition-all duration-300 font-black uppercase tracking-widest text-[9px] md:text-[11px]",
+                  activeTab === tab.id 
+                    ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30 scale-105" 
+                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                )}
               >
-                <tab.icon className={`w-5 h-5 shrink-0 transition-transform duration-500 ${activeTab === tab.id ? 'scale-110' : 'group-hover:scale-110'}`} />
+                <tab.icon className={cn("w-3.5 h-3.5 md:w-4 md:h-4", activeTab === tab.id ? "animate-pulse" : "")} />
                 {tab.label}
               </button>
             ))}
-            <button
-              onClick={() => setActiveTab("blacklist")}
-              data-state={activeTab === "blacklist" ? "active" : "inactive"}
-              className="nav-tab-trigger group text-rose-500"
-            >
-              <ShieldX className={`w-5 h-5 shrink-0 transition-transform duration-500 ${activeTab === "blacklist" ? 'scale-110' : 'group-hover:scale-110'}`} />
-              Lista Negra (Banidos)
-            </button>
           </div>
         </div>
       </nav>
@@ -157,11 +176,6 @@ export default function Dashboard() {
           <ConferenciaSection />
         </TabsContent>
 
-        {/* 🚫 ABA LISTA NEGRA */}
-        <TabsContent value="blacklist" className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <BlacklistManager />
-        </TabsContent>
-
         {/* ⚙️ ABA CONFIGURAÇÕES E CATÁLOGO */}
         <TabsContent value="dashboard" className="space-y-6">
           <div className="grid md:grid-cols-3 gap-6 text-balance animate-in fade-in duration-700">
@@ -172,9 +186,8 @@ export default function Dashboard() {
                   <strong>Trabalho Pesado:</strong> Use esta área para subir o catálogo do COTAC ou processar grandes arquivos de vendas.
                 </AlertDescription>
               </Alert>
-              <div className="grid md:grid-cols-2 gap-6 items-start">
+              <div className="grid md:grid-cols-1 gap-6 items-start">
                  <FileUploadSection />
-                 <SyncPhotosTool />
               </div>
               <div className="mt-8">
                 <BulkUploadQueue />

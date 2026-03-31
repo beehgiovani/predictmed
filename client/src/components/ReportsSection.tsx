@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { AlertCircle, TrendingDown, TrendingUp, ClipboardList, PackageSearch, Loader2, BarChart3, Zap, ShieldAlert, ChevronRight, Database } from "lucide-react";
+import { AlertCircle, TrendingDown, TrendingUp, ClipboardList, PackageSearch, Loader2, BarChart3, Zap, ShieldAlert, ChevronRight, Database, Clock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const containerVariants = {
@@ -20,7 +20,7 @@ const itemVariants = {
 };
 
 export default function ReportsSection() {
-  const { data: ruptures, isLoading, error } = trpc.cota.getRuptureSummary.useQuery();
+  const { data: summaryData, isLoading, error } = trpc.cota.getRuptureSummary.useQuery();
 
   if (isLoading) {
     return (
@@ -82,7 +82,7 @@ export default function ReportsSection() {
       {/* Grid de Status (Métricas em Tempo Real) */}
       <div className="reports-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { id: 'ruptures', icon: PackageSearch, color: 'rose', metric: ruptures?.length || 0, label: 'Faltas Críticas' },
+          { id: 'ruptures', icon: PackageSearch, color: 'rose', metric: summaryData?.list?.length || 0, label: 'Faltas Críticas' },
         ].map((card) => (
           <motion.div key={card.id} variants={itemVariants}>
             <Card className="report-status-card group premium-shadow border-none hover:-translate-y-1 transition-all duration-300">
@@ -113,13 +113,13 @@ export default function ReportsSection() {
               </div>
               <h3 className="text-xl font-black text-slate-800 tracking-tight">Produtos que faltaram</h3>
             </div>
-            <Badge className="bg-rose-100 text-rose-600 border-none font-black">{ruptures?.length || 0}</Badge>
+            <Badge className="bg-rose-100 text-rose-600 border-none font-black">{summaryData?.list?.length || 0}</Badge>
           </div>
           <Card className="priority-list-card glassmorphism border-none !bg-white/40 overflow-hidden">
             <div className="max-h-[500px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
-              {ruptures && ruptures.length > 0 ? (
+              {summaryData?.list && summaryData.list.length > 0 ? (
                 <div className="divide-y divide-slate-100/50">
-                  {ruptures.map((item: any) => (
+                  {summaryData.list.map((item: any) => (
                     <motion.div 
                       key={item.id} 
                       whileHover={{ x: 5 }}
@@ -130,15 +130,23 @@ export default function ReportsSection() {
                           <ShieldAlert className="w-6 h-6" />
                         </div>
                         <div>
-                          <span className="priority-item-name block text-base font-black text-slate-700 group-hover:text-slate-900">{item.productName}</span>
-                          <span className="priority-item-sub text-[11px] font-bold text-slate-400 uppercase tracking-wider mt-1 block">
-                            CÓD: {item.productCode} • {item.session}
+                          <span className="priority-item-name block text-base font-black text-slate-700 group-hover:text-slate-900">{item.productName || 'Sem Nome'}</span>
+                          <span className="priority-item-sub text-[11px] font-bold text-slate-400 uppercase tracking-wider mt-1 flex items-center gap-2">
+                            <span>CÓD: {item.productCode}</span> 
+                            <span className="w-1 h-1 bg-slate-300 rounded-full" /> 
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{new Date(item.lastAskedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute:'2-digit' })}</span>
+                            {item.isSpecialOrder && (
+                              <>
+                                <span className="w-1 h-1 bg-rose-300 rounded-full" />
+                                <span className="text-rose-500 font-black px-1.5 py-0.5 bg-rose-50 rounded-md">VIP</span>
+                              </>
+                            )}
                           </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-8">
                         <div className="text-right">
-                          <div className="text-lg font-black text-rose-600">-{item.confirmed - (item.arrived || 0)}</div>
+                          <div className="text-lg font-black text-rose-600">-{item.askedCount || 1}</div>
                           <div className="text-[10px] font-black text-slate-400 uppercase leading-none">Faltou</div>
                         </div>
                         <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-rose-400 transition-colors" />

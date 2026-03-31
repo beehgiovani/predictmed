@@ -1,0 +1,19 @@
+{
+  "imports": {
+    "zod": "npm:zod@4.3.6",
+    "@trpc/server": "npm:@trpc/server@11.16.0",
+    "@trpc/server/": "npm:@trpc/server@11.16.0/",
+    "superjson": "npm:superjson@1.13.3",
+    "drizzle-orm": "npm:drizzle-orm@0.44.7",
+    "drizzle-orm/postgres-js": "npm:drizzle-orm@0.44.7/postgres-js",
+    "postgres": "npm:postgres@3.4.8",
+    "@google/generative-ai": "npm:@google/generative-ai@0.24.1",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.100.1",
+    "express": "npm:express@4.22.1",
+    "axios": "npm:axios@1.14.0",
+    "cookie": "npm:cookie@1.1.1",
+    "jose": "npm:jose@6.1.0",
+    "@shared/": "../../../shared/",
+    "@/": "../../../client/src/"
+  }
+}
